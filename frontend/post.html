@@ -18,49 +18,36 @@
       </div>
     </header>
 
-    <main class="page-shell thread-shell">
-      <aside class="panel profile-panel">
-        <h1 class="site-title">Thread View</h1>
-        <p class="site-subtitle">Reading one post and all comments.</p>
-        <p><a href="/" class="inline-link">Back to feed</a></p>
-      </aside>
+    <main class="page-shell">
+      <article class="panel post-article">
+        <p class="back-row"><a href="/" class="inline-link"><- Back to feed</a></p>
+        <p id="postStatus" class="status-text">Loading post...</p>
+        <section id="postView"></section>
+      </article>
 
-      <section class="thread-main">
-        <article class="panel post-article">
-          <p id="postStatus" class="status-text">Loading post...</p>
-          <section id="postView"></section>
-        </article>
+      <section class="panel comments-panel">
+        <h2>Comments</h2>
+        <ul id="commentList" class="comment-list"></ul>
 
-        <section class="panel comments-panel">
-          <h2>Comments</h2>
-          <ul id="commentList" class="comment-list"></ul>
+        <form id="commentForm" class="comment-form">
+          <label for="nameInput">Name (optional)</label>
+          <input id="nameInput" name="name" type="text" placeholder="Anonymous visitor" />
 
-          <form id="commentForm" class="comment-form">
-            <label for="nameInput">Name (optional)</label>
-            <input id="nameInput" name="name" type="text" placeholder="Anonymous visitor" />
+          <label for="contentInput">Comment</label>
+          <textarea
+            id="contentInput"
+            name="content"
+            rows="4"
+            placeholder="Leave a note..."
+            required
+          ></textarea>
 
-            <label for="contentInput">Comment</label>
-            <textarea
-              id="contentInput"
-              name="content"
-              rows="4"
-              placeholder="Leave a note..."
-              required
-            ></textarea>
+          <input name="website" type="text" class="honeypot" autocomplete="off" tabindex="-1" />
 
-            <input name="website" type="text" class="honeypot" autocomplete="off" tabindex="-1" />
-
-            <button type="submit">Send Comment</button>
-            <p id="commentStatus" class="status-text"></p>
-          </form>
-        </section>
+          <button type="submit">Send Comment</button>
+          <p id="commentStatus" class="status-text"></p>
+        </form>
       </section>
-
-      <aside class="panel info-panel">
-        <h2>Thread Tips</h2>
-        <p>Comments are shown in full here.</p>
-        <p class="small-note">The feed page only shows a small preview of replies.</p>
-      </aside>
     </main>
   </body>
 </html>

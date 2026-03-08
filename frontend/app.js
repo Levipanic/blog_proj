@@ -19,6 +19,9 @@
   }
 })();
 
+const PLACEHOLDER_IMAGE = "/uploads/missingno.png";
+const ALLOWED_MEDIA_KINDS = new Set(["image", "gif", "video", "audio", "file"]);
+
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
   let data = null;
@@ -49,14 +52,91 @@ function toMillis(dateString) {
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
+function asText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function previewText(text, maxLength) {
-  if (!text) return "";
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength).trimEnd() + "...";
+  const value = asText(text);
+  if (!value) return "";
+  if (value.length <= maxLength) return value;
+  return value.slice(0, maxLength).trimEnd() + "...";
+}
+
+function safeMediaSrc(value) {
+  const src = asText(value);
+  if (!src.startsWith("/uploads/")) return "";
+  return src;
+}
+
+function deriveFileNameFromSrc(src) {
+  const safeSrc = safeMediaSrc(src);
+  if (!safeSrc) return "file";
+
+  const parts = safeSrc.split("/");
+  const lastPart = parts[parts.length - 1] || "file";
+
+  try {
+    return decodeURIComponent(lastPart);
+  } catch (error) {
+    return lastPart;
+  }
+}
+
+function normalizeClientBlock(rawBlock) {
+  if (!rawBlock || typeof rawBlock !== "object" || Array.isArray(rawBlock)) return null;
+
+  const type = asText(rawBlock.type);
+
+  if (type === "paragraph") {
+    const text = asText(rawBlock.text);
+    return text ? { type: "paragraph", text } : null;
+  }
+
+  if (type === "heading") {
+    const level = Number(rawBlock.level);
+    const text = asText(rawBlock.text);
+    if (![1, 2, 3].includes(level) || !text) return null;
+    return { type: "heading", level, text };
+  }
+
+  if (type === "quote") {
+    const text = asText(rawBlock.text);
+    return text ? { type: "quote", text } : null;
+  }
+
+  if (type === "divider") {
+    return { type: "divider" };
+  }
+
+  if (type === "media") {
+    const mediaKind = asText(rawBlock.mediaKind);
+    const src = safeMediaSrc(rawBlock.src);
+    if (!ALLOWED_MEDIA_KINDS.has(mediaKind) || !src) return null;
+
+    return {
+      type: "media",
+      mediaKind,
+      src,
+      name: asText(rawBlock.name),
+      alt: asText(rawBlock.alt),
+      caption: asText(rawBlock.caption)
+    };
+  }
+
+  return null;
 }
 
 function createThreadUrl(postId) {
   return "/post.html?id=" + encodeURIComponent(postId);
+}
+
+function attachPlaceholderFallback(imageEl) {
+  imageEl.addEventListener("error", () => {
+    if (imageEl.dataset.fallbackApplied === "1") return;
+    imageEl.dataset.fallbackApplied = "1";
+    imageEl.src = PLACEHOLDER_IMAGE;
+  });
 }
 
 function wireCardNavigation(cardEl, href) {
@@ -83,6 +163,25 @@ async function loadCommentPreview(postId) {
   } catch (error) {
     return [];
   }
+}
+
+function renderFeedPreviewMedia(post) {
+  if (!post || !post.preview_media || typeof post.preview_media !== "object") {
+    return null;
+  }
+
+  const src = safeMediaSrc(post.preview_media.src);
+  const mediaKind = asText(post.preview_media.mediaKind);
+  if (!src || (mediaKind !== "image" && mediaKind !== "gif")) {
+    return null;
+  }
+
+  const image = document.createElement("img");
+  image.className = "tweet-thumb";
+  image.src = src;
+  image.alt = asText(post.preview_media.alt) || asText(post.title) || "Post media";
+  attachPlaceholderFallback(image);
+  return image;
 }
 
 async function initFeedPage() {
@@ -143,20 +242,21 @@ async function initFeedPage() {
     header.appendChild(handle);
     header.appendChild(dot);
     header.appendChild(date);
+    card.appendChild(header);
+
+    const title = document.createElement("h2");
+    title.className = "tweet-title";
+    title.textContent = asText(post.title) || "Untitled post";
+    card.appendChild(title);
 
     const text = document.createElement("p");
     text.className = "tweet-text";
-    text.textContent = previewText(post.content, 240);
-
-    card.appendChild(header);
+    text.textContent = previewText(post.preview_text, 240) || "No paragraph preview.";
     card.appendChild(text);
 
-    if (post.image_url) {
-      const image = document.createElement("img");
-      image.className = "tweet-image";
-      image.src = post.image_url;
-      image.alt = "Post image";
-      card.appendChild(image);
+    const previewMedia = renderFeedPreviewMedia(post);
+    if (previewMedia) {
+      card.appendChild(previewMedia);
     }
 
     const comments = commentPreviewByPostId.get(post.id) || [];
@@ -227,7 +327,7 @@ async function initPostPage() {
   renderPost(postViewEl, post);
   renderComments(commentListEl, comments);
   postStatusEl.textContent = "";
-  document.title = "Pixel Notebook - Post #" + postId;
+  document.title = "Pixel Notebook - " + (asText(post.title) || "Post #" + postId);
 
   commentFormEl.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -288,23 +388,148 @@ function renderPost(postViewEl, post) {
   header.appendChild(handle);
   header.appendChild(dot);
   header.appendChild(date);
-
-  const text = document.createElement("p");
-  text.className = "tweet-text tweet-text-full";
-  text.textContent = post.content || "";
-
   card.appendChild(header);
-  card.appendChild(text);
 
-  if (post.image_url) {
-    const image = document.createElement("img");
-    image.className = "tweet-image";
-    image.src = post.image_url;
-    image.alt = "Post image";
-    card.appendChild(image);
+  const title = document.createElement("h1");
+  title.className = "tweet-title tweet-title-full";
+  title.textContent = asText(post.title) || "Untitled post";
+  card.appendChild(title);
+
+  const blocksWrap = document.createElement("div");
+  blocksWrap.className = "post-blocks";
+
+  const rawBlocks = Array.isArray(post.blocks) ? post.blocks : [];
+  const blocks = rawBlocks.map((block) => normalizeClientBlock(block)).filter((block) => block);
+
+  if (blocks.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "tweet-text tweet-text-full";
+    empty.textContent = "This post has no readable blocks.";
+    blocksWrap.appendChild(empty);
+  } else {
+    blocks.forEach((block) => {
+      const blockElement = renderPostBlock(block);
+      if (blockElement) {
+        blocksWrap.appendChild(blockElement);
+      }
+    });
   }
 
+  card.appendChild(blocksWrap);
   postViewEl.appendChild(card);
+}
+
+function renderPostBlock(block) {
+  if (block.type === "paragraph") {
+    const text = document.createElement("p");
+    text.className = "tweet-text tweet-text-full post-paragraph";
+    text.textContent = block.text;
+    return text;
+  }
+
+  if (block.type === "heading") {
+    const heading = document.createElement("h" + block.level);
+    heading.className = "post-heading post-heading-" + block.level;
+    heading.textContent = block.text;
+    return heading;
+  }
+
+  if (block.type === "quote") {
+    const quote = document.createElement("blockquote");
+    quote.className = "post-quote";
+    quote.textContent = block.text;
+    return quote;
+  }
+
+  if (block.type === "divider") {
+    const divider = document.createElement("hr");
+    divider.className = "post-divider";
+    return divider;
+  }
+
+  if (block.type === "media") {
+    return renderMediaBlock(block);
+  }
+
+  return null;
+}
+
+function renderMediaBlock(block) {
+  const src = safeMediaSrc(block.src);
+  if (!src) return null;
+
+  const captionText = asText(block.caption);
+
+  const figure = document.createElement("figure");
+  figure.className = "post-media";
+
+  if (block.mediaKind === "image" || block.mediaKind === "gif") {
+    const image = document.createElement("img");
+    image.className = "tweet-image";
+    image.src = src;
+    image.alt = asText(block.alt) || asText(block.name) || "Post media";
+    attachPlaceholderFallback(image);
+    figure.appendChild(image);
+
+    const figcaption = document.createElement("figcaption");
+    figcaption.className = "post-caption";
+    figcaption.textContent = captionText;
+    figure.appendChild(figcaption);
+    return figure;
+  } else if (block.mediaKind === "video") {
+    const video = document.createElement("video");
+    video.className = "post-video";
+    video.controls = true;
+    video.preload = "metadata";
+    video.src = src;
+    figure.appendChild(video);
+
+    const figcaption = document.createElement("figcaption");
+    figcaption.className = "post-caption";
+    figcaption.textContent = captionText;
+    figure.appendChild(figcaption);
+    return figure;
+  } else if (block.mediaKind === "audio") {
+    const audio = document.createElement("audio");
+    audio.className = "post-audio";
+    audio.controls = true;
+    audio.src = src;
+    figure.appendChild(audio);
+
+    const figcaption = document.createElement("figcaption");
+    figcaption.className = "post-caption";
+    figcaption.textContent = captionText;
+    figure.appendChild(figcaption);
+    return figure;
+  } else if (block.mediaKind === "file") {
+    const fileName = asText(block.name) || deriveFileNameFromSrc(src);
+
+    const fileBlock = document.createElement("div");
+    fileBlock.className = "post-file-block";
+
+    const label = document.createElement("p");
+    label.className = "post-file-label";
+    label.textContent = "Attached file";
+    fileBlock.appendChild(label);
+
+    const link = document.createElement("a");
+    link.className = "inline-link post-file-link";
+    link.href = src;
+    link.setAttribute("download", fileName);
+    link.textContent = fileName;
+    fileBlock.appendChild(link);
+
+    if (captionText) {
+      const caption = document.createElement("p");
+      caption.className = "post-caption";
+      caption.textContent = captionText;
+      fileBlock.appendChild(caption);
+    }
+
+    return fileBlock;
+  }
+
+  return null;
 }
 
 function renderComments(commentListEl, comments) {

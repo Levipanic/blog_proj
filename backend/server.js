@@ -3,10 +3,11 @@ require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const multer = require("multer");
 const rateLimit = require("express-rate-limit");
 
-const { initDb, run, get, all } = require("./db");
+const { initDb, seedDb, run, get, all } = require("./db");
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -16,16 +17,6 @@ const uploadsDir = path.join(__dirname, "..", "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-
-const storage = multer.diskStorage({
-  destination: uploadsDir,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || "").toLowerCase();
-    cb(null, `${Date.now()}${ext || ".jpg"}`);
-  }
-});
-
-const upload = multer({ storage });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -40,16 +31,290 @@ const commentLimiter = rateLimit({
   message: { error: "Too many comments from this IP. Please try again in a minute." }
 });
 
+const allowedMediaKinds = new Set(["image", "gif", "video", "audio", "file"]);
+const maxUploadSizeBytes = 25 * 1024 * 1024;
+const maxPostTitleLength = 160;
+
+const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
+const gifExtensions = new Set([".gif"]);
+const videoExtensions = new Set([".mp4", ".webm", ".mov"]);
+const audioExtensions = new Set([".mp3", ".wav", ".ogg", ".m4a"]);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: uploadsDir,
+    filename: (req, file, cb) => {
+      const extension = getSafeExtension(file.originalname);
+      const storedName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`;
+      cb(null, storedName);
+    }
+  }),
+  limits: {
+    fileSize: maxUploadSizeBytes
+  }
+});
+
+function asText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function safeMediaSrc(value) {
+  const src = asText(value);
+  if (!src.startsWith("/uploads/")) {
+    return "";
+  }
+  return src;
+}
+
+function getSafeExtension(fileName) {
+  const extension = path.extname(asText(fileName)).toLowerCase();
+  if (!extension) return "";
+  if (!/^\.[a-z0-9]{1,10}$/.test(extension)) return "";
+  return extension;
+}
+
+function detectMediaKind(fileName) {
+  const extension = getSafeExtension(fileName);
+
+  if (gifExtensions.has(extension)) return "gif";
+  if (imageExtensions.has(extension)) return "image";
+  if (videoExtensions.has(extension)) return "video";
+  if (audioExtensions.has(extension)) return "audio";
+  return "file";
+}
+
+function removeFileIfExists(filePath) {
+  fs.unlink(filePath, () => {
+    return;
+  });
+}
+
+function normalizeBlock(rawBlock) {
+  if (!rawBlock || typeof rawBlock !== "object" || Array.isArray(rawBlock)) {
+    return null;
+  }
+
+  const type = asText(rawBlock.type);
+
+  if (type === "paragraph") {
+    const text = asText(rawBlock.text);
+    if (!text) return null;
+    return { type: "paragraph", text };
+  }
+
+  if (type === "heading") {
+    const level = Number(rawBlock.level);
+    const text = asText(rawBlock.text);
+    if (!text || ![1, 2, 3].includes(level)) return null;
+    return { type: "heading", level, text };
+  }
+
+  if (type === "quote") {
+    const text = asText(rawBlock.text);
+    if (!text) return null;
+    return { type: "quote", text };
+  }
+
+  if (type === "divider") {
+    return { type: "divider" };
+  }
+
+  if (type === "media") {
+    const mediaKind = asText(rawBlock.mediaKind);
+    const src = safeMediaSrc(rawBlock.src);
+    if (!allowedMediaKinds.has(mediaKind) || !src) return null;
+
+    const block = {
+      type: "media",
+      mediaKind,
+      src
+    };
+
+    const name = asText(rawBlock.name);
+    const alt = asText(rawBlock.alt);
+    const caption = asText(rawBlock.caption);
+
+    if (name) block.name = name;
+    if (alt) block.alt = alt;
+    if (caption) block.caption = caption;
+
+    return block;
+  }
+
+  return null;
+}
+
+function validateAndNormalizePostBlock(rawBlock, index) {
+  const fieldPrefix = `blocks[${index}]`;
+
+  if (!rawBlock || typeof rawBlock !== "object" || Array.isArray(rawBlock)) {
+    return { error: `${fieldPrefix} must be an object.` };
+  }
+
+  const type = asText(rawBlock.type);
+  if (!type) {
+    return { error: `${fieldPrefix}.type is required.` };
+  }
+
+  if (type === "paragraph" || type === "quote") {
+    const text = asText(rawBlock.text);
+    if (!text) {
+      return { error: `${fieldPrefix}.text is required for ${type}.` };
+    }
+    return { block: { type, text } };
+  }
+
+  if (type === "heading") {
+    const text = asText(rawBlock.text);
+    const level = Number(rawBlock.level);
+    if (!text) {
+      return { error: `${fieldPrefix}.text is required for heading.` };
+    }
+    if (![1, 2, 3].includes(level)) {
+      return { error: `${fieldPrefix}.level must be 1, 2, or 3.` };
+    }
+    return { block: { type: "heading", level, text } };
+  }
+
+  if (type === "divider") {
+    return { block: { type: "divider" } };
+  }
+
+  if (type === "media") {
+    const mediaKind = asText(rawBlock.mediaKind);
+    const src = safeMediaSrc(rawBlock.src);
+
+    if (!mediaKind) {
+      return { error: `${fieldPrefix}.mediaKind is required for media.` };
+    }
+
+    if (!allowedMediaKinds.has(mediaKind)) {
+      return { error: `${fieldPrefix}.mediaKind is invalid.` };
+    }
+
+    if (!src) {
+      return { error: `${fieldPrefix}.src must be a local /uploads/... path.` };
+    }
+
+    const block = {
+      type: "media",
+      mediaKind,
+      src
+    };
+
+    const name = asText(rawBlock.name);
+    const alt = asText(rawBlock.alt);
+    const caption = asText(rawBlock.caption);
+
+    if (name) block.name = name;
+    if (alt) block.alt = alt;
+    if (caption) block.caption = caption;
+
+    return { block };
+  }
+
+  return { error: `${fieldPrefix}.type is invalid.` };
+}
+
+function validateCreatePostPayload(body) {
+  const errors = [];
+  const title = asText(body && body.title);
+  const rawBlocks = body ? body.blocks : undefined;
+  const blocks = [];
+
+  if (!title) {
+    errors.push("title is required.");
+  } else if (title.length > maxPostTitleLength) {
+    errors.push(`title must be at most ${maxPostTitleLength} characters.`);
+  }
+
+  if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
+    errors.push("blocks must be a non-empty array.");
+  } else {
+    rawBlocks.forEach((rawBlock, index) => {
+      const result = validateAndNormalizePostBlock(rawBlock, index);
+      if (result.error) {
+        errors.push(result.error);
+      } else {
+        blocks.push(result.block);
+      }
+    });
+  }
+
+  return {
+    errors,
+    value: {
+      title,
+      blocks
+    }
+  };
+}
+
+function parseBlocksJson(rawJson) {
+  if (typeof rawJson !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawJson);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const blocks = parsed
+      .map((block) => normalizeBlock(block))
+      .filter((block) => block !== null);
+
+    return blocks;
+  } catch (error) {
+    return [];
+  }
+}
+
+function getPreviewText(blocks) {
+  const firstParagraph = blocks.find((block) => block.type === "paragraph");
+  return firstParagraph ? firstParagraph.text : "";
+}
+
+function getPreviewMedia(blocks) {
+  const block = blocks.find(
+    (item) =>
+      item.type === "media" && (item.mediaKind === "image" || item.mediaKind === "gif") && item.src
+  );
+
+  if (!block) {
+    return null;
+  }
+
+  return {
+    mediaKind: block.mediaKind,
+    src: block.src,
+    alt: block.alt || "",
+    caption: block.caption || "",
+    name: block.name || ""
+  };
+}
+
 app.get("/posts", async (req, res, next) => {
   try {
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10));
     const page = Math.max(1, Number(req.query.page) || 1);
     const offset = (page - 1) * limit;
 
-    const items = await all(
-      "SELECT id, content, image_url, created_at FROM posts ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?",
+    const rows = await all(
+      "SELECT id, title, blocks_json, created_at FROM posts ORDER BY datetime(created_at) DESC, id DESC LIMIT ? OFFSET ?",
       [limit, offset]
     );
+    const items = rows.map((row) => {
+      const blocks = parseBlocksJson(row.blocks_json);
+      return {
+        id: row.id,
+        title: row.title,
+        created_at: row.created_at,
+        preview_text: getPreviewText(blocks),
+        preview_media: getPreviewMedia(blocks)
+      };
+    });
     const totalRow = await get("SELECT COUNT(*) AS total FROM posts");
 
     res.json({
@@ -68,16 +333,20 @@ app.get("/posts", async (req, res, next) => {
 
 app.get("/posts/:id", async (req, res, next) => {
   try {
-    const post = await get(
-      "SELECT id, content, image_url, created_at FROM posts WHERE id = ?",
-      [req.params.id]
-    );
+    const row = await get("SELECT id, title, blocks_json, created_at FROM posts WHERE id = ?", [
+      req.params.id
+    ]);
 
-    if (!post) {
+    if (!row) {
       return res.status(404).json({ error: "Post not found." });
     }
 
-    res.json(post);
+    res.json({
+      id: row.id,
+      title: row.title,
+      created_at: row.created_at,
+      blocks: parseBlocksJson(row.blocks_json)
+    });
   } catch (error) {
     next(error);
   }
@@ -142,36 +411,73 @@ app.post("/comments", commentLimiter, async (req, res, next) => {
   }
 });
 
-app.post("/posts", upload.single("image"), async (req, res, next) => {
+app.post("/posts", async (req, res, next) => {
   try {
     if (req.headers["x-admin-secret"] !== adminSecret) {
       return res.status(403).json({ error: "Forbidden." });
     }
 
-    const content = (req.body.content || "").trim();
-    if (!content) {
-      return res.status(400).json({ error: "content is required." });
+    const payload = validateCreatePostPayload(req.body);
+    if (payload.errors.length > 0) {
+      return res.status(400).json({
+        error: "Invalid post payload.",
+        details: payload.errors
+      });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: "image is required." });
-    }
+    const { title, blocks } = payload.value;
 
-    const imageUrl = `/uploads/${req.file.filename}`;
     const result = await run(
-      "INSERT INTO posts (content, image_url, created_at) VALUES (?, ?, datetime('now'))",
-      [content, imageUrl]
+      "INSERT INTO posts (title, blocks_json, created_at) VALUES (?, ?, datetime('now'))",
+      [title, JSON.stringify(blocks)]
     );
 
-    const newPost = await get(
-      "SELECT id, content, image_url, created_at FROM posts WHERE id = ?",
-      [result.lastID]
-    );
+    const newPost = await get("SELECT id, title, blocks_json, created_at FROM posts WHERE id = ?", [
+      result.lastID
+    ]);
 
-    res.status(201).json(newPost);
+    res.status(201).json({
+      id: newPost.id,
+      title: newPost.title,
+      created_at: newPost.created_at,
+      blocks: parseBlocksJson(newPost.blocks_json)
+    });
   } catch (error) {
     next(error);
   }
+});
+
+app.post("/upload", (req, res, next) => {
+  if (req.headers["x-admin-secret"] !== adminSecret) {
+    return res.status(403).json({ error: "Forbidden." });
+  }
+
+  upload.single("file")(req, res, (error) => {
+    if (error) {
+      if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+        return res
+          .status(413)
+          .json({ error: `File is too large. Max size is ${Math.floor(maxUploadSizeBytes / 1024 / 1024)}MB.` });
+      }
+      return next(error);
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "file is required." });
+    }
+
+    if (!req.file.size) {
+      removeFileIfExists(req.file.path);
+      return res.status(400).json({ error: "Empty file uploads are not allowed." });
+    }
+
+    res.status(201).json({
+      url: `/uploads/${req.file.filename}`,
+      originalName: asText(req.file.originalname) || "file",
+      storedName: req.file.filename,
+      mediaKind: detectMediaKind(req.file.filename)
+    });
+  });
 });
 
 app.get("/{*path}", (req, res) => {
@@ -185,6 +491,7 @@ app.use((err, req, res, next) => {
 
 async function start() {
   await initDb();
+  await seedDb();
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
   });
