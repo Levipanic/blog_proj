@@ -6,6 +6,7 @@
     <title>Pixel Notebook - Admin</title>
     <script src="/theme.js" defer></script>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
     <script src="/admin.js" defer></script>
   </head>
   <body data-page="admin">
@@ -60,28 +61,67 @@
             <p id="uploadStatus" class="status-text"></p>
             <pre id="uploadResult" class="admin-result" aria-live="polite"></pre>
             <button id="insertMediaBlockButton" type="button" class="admin-button">
-              Insert media block from last upload
+              Insert into new media block
             </button>
           </div>
 
           <div class="admin-section">
             <h2 class="admin-section-title">2) Create Post</h2>
-            <form id="postForm" class="admin-form">
-              <label for="postTitleInput">Post title</label>
-              <input id="postTitleInput" type="text" maxlength="160" placeholder="Post title" required />
+            <div class="admin-post-workbench">
+              <div class="admin-post-editor">
+                <form id="postForm" class="admin-form">
+                  <label for="postTitleInput">Post title</label>
+                  <input id="postTitleInput" type="text" maxlength="160" placeholder="Post title" required />
 
-              <label for="blocksInput">Blocks JSON</label>
-              <textarea
-                id="blocksInput"
-                rows="12"
-                placeholder='[{"type":"paragraph","text":"Hello"}]'
-                required
-              ></textarea>
+                  <div class="admin-block-toolbar" role="group" aria-label="Add block">
+                    <button type="button" class="admin-button admin-button-secondary" data-add-block="paragraph">
+                      Add paragraph
+                    </button>
+                    <button type="button" class="admin-button admin-button-secondary" data-add-block="heading">
+                      Add heading
+                    </button>
+                    <button type="button" class="admin-button admin-button-secondary" data-add-block="quote">
+                      Add quote
+                    </button>
+                    <button type="button" class="admin-button admin-button-secondary" data-add-block="divider">
+                      Add divider
+                    </button>
+                    <button type="button" class="admin-button admin-button-secondary" data-add-block="media">
+                      Add media
+                    </button>
+                  </div>
 
-              <button type="submit" class="admin-button">Create Post</button>
-            </form>
-            <p id="postStatus" class="status-text"></p>
-            <pre id="postResult" class="admin-result" aria-live="polite"></pre>
+                  <section id="blockEditorList" class="admin-block-list" aria-live="polite"></section>
+                  <p id="blockEditorEmpty" class="status-text">No blocks yet. Add one to start composing.</p>
+
+                  <details class="admin-raw-json">
+                    <summary class="admin-section-title">Raw Blocks JSON (debug)</summary>
+                    <textarea id="blocksInput" rows="12" readonly></textarea>
+                  </details>
+
+                  <div class="admin-post-actions">
+                    <button type="submit" class="admin-button">Create Post</button>
+                    <button id="clearDraftButton" type="button" class="admin-button admin-button-secondary">
+                      Clear Draft
+                    </button>
+                  </div>
+                </form>
+                <p id="postStatus" class="status-text"></p>
+                <pre id="postResult" class="admin-result" aria-live="polite"></pre>
+              </div>
+
+              <section class="admin-preview" aria-labelledby="postPreviewHeading">
+                <h3 id="postPreviewHeading" class="admin-section-title">Live Preview</h3>
+                <article class="tweet-card tweet-card-full admin-preview-card">
+                  <h1 id="postPreviewTitle" class="tweet-title tweet-title-full">Untitled post</h1>
+                  <div id="postPreviewBlocks" class="post-blocks" aria-live="polite">
+                    <p class="admin-preview-placeholder">
+                      Add a title and blocks to preview the post.
+                    </p>
+                  </div>
+                </article>
+              </section>
+            </div>
           </div>
 
           <details class="admin-section">

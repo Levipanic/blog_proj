@@ -630,6 +630,7 @@ select {
 .comment-form button,
 .admin-form input,
 .admin-form textarea,
+.admin-form select,
 .admin-button,
 #adminSecretInput {
   width: 100%;
@@ -664,6 +665,16 @@ select {
 .comment-form button:hover,
 .admin-button:hover {
   background: linear-gradient(180deg, var(--button-bg-start-hover), var(--button-bg-end-hover));
+}
+
+.admin-button-secondary {
+  color: var(--text);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-alt);
+}
+
+.admin-button-secondary:hover {
+  background: var(--surface-hover);
 }
 
 .honeypot-wrap {
@@ -714,8 +725,173 @@ select {
   gap: 0.62rem;
 }
 
+.admin-post-workbench {
+  display: grid;
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.admin-post-editor,
+.admin-preview {
+  min-width: 0;
+}
+
+.admin-preview .admin-section-title {
+  margin-bottom: 0.45rem;
+}
+
+.admin-preview-card {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: var(--surface-alt);
+  cursor: default;
+}
+
+.admin-preview-card:hover {
+  background: var(--surface-alt);
+}
+
+.admin-preview-placeholder,
+.admin-preview-invalid {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-preview-invalid {
+  padding-left: 0.55rem;
+  border-left: 2px solid var(--border-soft);
+  font-size: 0.86rem;
+}
+
+.admin-block-toolbar {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-block-list {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.admin-block-card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: var(--surface-alt);
+  padding: 0.68rem;
+}
+
+.admin-block-head {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.58rem;
+}
+
+.admin-block-title-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.55rem;
+}
+
+.admin-block-index,
+.admin-block-type {
+  margin: 0;
+}
+
+.admin-block-index {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.admin-block-type {
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.admin-block-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.admin-block-control {
+  flex: 1 1 6.3rem;
+  min-height: 2.4rem;
+  padding: 0.44rem 0.62rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--control-radius);
+  background: var(--input-bg);
+  color: var(--input-text);
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.admin-block-control:hover {
+  background: var(--surface-hover);
+}
+
+.admin-block-control:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.admin-block-fields {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-block-field {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.admin-block-field-label {
+  font-size: 0.87rem;
+  font-weight: 600;
+}
+
+.admin-block-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.admin-block-field textarea {
+  min-height: 6.2rem;
+}
+
+.admin-post-actions {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-raw-json {
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--panel-radius);
+  padding: 0.55rem 0.65rem;
+}
+
+.admin-raw-json > summary {
+  margin: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-raw-json > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-raw-json[open] > summary {
+  margin-bottom: 0.55rem;
+}
+
 #blocksInput {
-  min-height: 15.5rem;
+  min-height: 11rem;
   font-family: Consolas, "Courier New", monospace;
 }
 
@@ -776,6 +952,25 @@ select {
   .admin-form {
     gap: 0.72rem;
   }
+
+  .admin-block-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-post-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-block-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.6rem;
+  }
+
+  .admin-block-control {
+    flex: 0 0 auto;
+    min-width: 6.5rem;
+  }
 }
 
 @media (min-width: 980px) {
@@ -795,5 +990,10 @@ select {
 
   .admin-panel {
     max-width: 64rem;
+  }
+
+  .admin-post-workbench {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
   }
 }
