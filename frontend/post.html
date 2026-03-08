@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pixel Notebook - Post</title>
+    <script src="/theme.js" defer></script>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
@@ -11,10 +12,13 @@
     <header class="topbar">
       <div class="topbar-inner">
         <p class="brand-mark">Pixel Notebook</p>
-        <nav aria-label="Main">
-          <a href="/" class="top-link">Home</a>
-          <a href="#" class="top-link active">Post</a>
-        </nav>
+        <div class="topbar-actions">
+          <nav aria-label="Main">
+            <a href="/" class="top-link">Home</a>
+            <a href="#" class="top-link active">Post</a>
+          </nav>
+          <button id="themeToggle" class="theme-toggle" type="button">Theme: Light</button>
+        </div>
       </div>
     </header>
 
