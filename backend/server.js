@@ -12,6 +12,7 @@ const { initDb, seedDb, run, get, all } = require("./db");
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const adminSecret = process.env.ADMIN_SECRET || "change-me";
+const isProduction = process.env.NODE_ENV === "production";
 
 function getPositiveInt(value, fallback) {
   const number = Number(value);
@@ -25,6 +26,11 @@ const likeCooldownSeconds = getPositiveInt(process.env.LIKE_COOLDOWN_SECONDS, 10
 const likeCooldownMs = likeCooldownSeconds * 1000;
 const likeRateLimitMax = getPositiveInt(process.env.LIKE_RATE_LIMIT_MAX, 20);
 const likeIpHashSalt = process.env.LIKE_IP_HASH_SALT || adminSecret;
+const adminSessionCookieName = "admin_session";
+const adminSessionTtlHours = getPositiveInt(process.env.ADMIN_SESSION_TTL_HOURS, 12);
+const adminSessionTtlMs = adminSessionTtlHours * 60 * 60 * 1000;
+const adminSessionHashSalt = process.env.ADMIN_SESSION_HASH_SALT || adminSecret;
+const adminLoginRateLimitMax = getPositiveInt(process.env.ADMIN_LOGIN_RATE_LIMIT_MAX, 6);
 
 const uploadsDir = path.join(__dirname, "..", "uploads");
 if (!fs.existsSync(uploadsDir)) {
@@ -35,6 +41,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(uploadsDir));
 app.use(express.static(path.join(__dirname, "..", "frontend")));
+app.use(async (req, res, next) => {
+  try {
+    req.adminSession = await getAdminSessionFromRequest(req);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 const commentLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -52,6 +66,15 @@ const likeLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
   message: { error: "Too many like requests from this IP. Please wait a minute and try again." }
+});
+
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: adminLoginRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+  message: { error: "Too many admin login attempts. Please try again in about 15 minutes." }
 });
 
 const allowedMediaKinds = new Set(["image", "gif", "video", "audio", "file"]);
@@ -128,10 +151,145 @@ function hashIpAddress(ipAddress) {
   return crypto.createHash("sha256").update(`${likeIpHashSalt}:${ipAddress}`).digest("hex");
 }
 
-function isAuthorizedAdminRequest(req) {
-  const rawHeader = req.headers["x-admin-secret"];
-  const providedSecret = Array.isArray(rawHeader) ? asText(rawHeader[0]) : asText(rawHeader);
-  return providedSecret === adminSecret;
+function hashAdminSessionToken(token) {
+  return crypto.createHash("sha256").update(`${adminSessionHashSalt}:${token}`).digest("hex");
+}
+
+function secureSecretsMatch(providedSecret, expectedSecret) {
+  const provided = Buffer.from(providedSecret || "", "utf8");
+  const expected = Buffer.from(expectedSecret || "", "utf8");
+  if (provided.length !== expected.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(provided, expected);
+}
+
+function parseCookies(cookieHeader) {
+  if (typeof cookieHeader !== "string" || !cookieHeader.trim()) {
+    return {};
+  }
+
+  const cookies = {};
+  cookieHeader.split(";").forEach((part) => {
+    const index = part.indexOf("=");
+    if (index <= 0) return;
+
+    const rawName = part.slice(0, index).trim();
+    const rawValue = part.slice(index + 1).trim();
+    if (!rawName) return;
+
+    try {
+      const name = decodeURIComponent(rawName);
+      const value = decodeURIComponent(rawValue);
+      cookies[name] = value;
+    } catch (error) {
+      return;
+    }
+  });
+
+  return cookies;
+}
+
+function readCookie(req, name) {
+  const cookies = parseCookies(req.headers.cookie);
+  return cookies[name] || "";
+}
+
+function serializeCookie(name, value, options = {}) {
+  const parts = [`${encodeURIComponent(name)}=${encodeURIComponent(value || "")}`];
+
+  if (typeof options.maxAgeSeconds === "number" && Number.isFinite(options.maxAgeSeconds)) {
+    const maxAge = Math.max(0, Math.floor(options.maxAgeSeconds));
+    parts.push(`Max-Age=${maxAge}`);
+  }
+
+  if (options.path) {
+    parts.push(`Path=${options.path}`);
+  }
+
+  if (options.httpOnly) {
+    parts.push("HttpOnly");
+  }
+
+  if (options.secure) {
+    parts.push("Secure");
+  }
+
+  if (options.sameSite) {
+    parts.push(`SameSite=${options.sameSite}`);
+  }
+
+  return parts.join("; ");
+}
+
+function setAdminSessionCookie(res, token) {
+  const cookie = serializeCookie(adminSessionCookieName, token, {
+    maxAgeSeconds: Math.floor(adminSessionTtlMs / 1000),
+    path: "/",
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: "Lax"
+  });
+  res.append("Set-Cookie", cookie);
+}
+
+function clearAdminSessionCookie(res) {
+  const cookie = serializeCookie(adminSessionCookieName, "", {
+    maxAgeSeconds: 0,
+    path: "/",
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: "Lax"
+  });
+  res.append("Set-Cookie", cookie);
+}
+
+async function deleteExpiredAdminSessions() {
+  await run("DELETE FROM admin_sessions WHERE datetime(expires_at) <= datetime('now')");
+}
+
+async function createAdminSession() {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashAdminSessionToken(token);
+  const expiryModifier = `+${adminSessionTtlHours} hour`;
+
+  await deleteExpiredAdminSessions();
+  await run("INSERT INTO admin_sessions (token_hash, expires_at) VALUES (?, datetime('now', ?))", [
+    tokenHash,
+    expiryModifier
+  ]);
+
+  return token;
+}
+
+async function deleteAdminSessionByToken(token) {
+  if (!token) {
+    return;
+  }
+
+  const tokenHash = hashAdminSessionToken(token);
+  await run("DELETE FROM admin_sessions WHERE token_hash = ?", [tokenHash]);
+}
+
+async function getAdminSessionFromRequest(req) {
+  const token = readCookie(req, adminSessionCookieName);
+  if (!token) {
+    return null;
+  }
+
+  const tokenHash = hashAdminSessionToken(token);
+  const session = await get(
+    "SELECT id, created_at, expires_at FROM admin_sessions WHERE token_hash = ? AND datetime(expires_at) > datetime('now')",
+    [tokenHash]
+  );
+  return session || null;
+}
+
+function requireAdminSession(req, res, next) {
+  if (!req.adminSession) {
+    return res.status(401).json({ error: "Admin login required." });
+  }
+  next();
 }
 
 function parsePositivePostId(value) {
@@ -362,6 +520,66 @@ function getPreviewMedia(blocks) {
   };
 }
 
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "frontend", "admin.html"));
+});
+
+app.post("/admin/login", adminLoginLimiter, async (req, res, next) => {
+  try {
+    const secret = asText(req.body && req.body.secret);
+    if (!secret) {
+      return res.status(400).json({ error: "Admin secret is required." });
+    }
+
+    if (!secureSecretsMatch(secret, adminSecret)) {
+      return res.status(401).json({ error: "Invalid admin secret." });
+    }
+
+    const token = await createAdminSession();
+    setAdminSessionCookie(res, token);
+
+    res.json({
+      ok: true,
+      authenticated: true,
+      expires_in_seconds: Math.floor(adminSessionTtlMs / 1000)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/admin/logout", async (req, res, next) => {
+  try {
+    const token = readCookie(req, adminSessionCookieName);
+    await deleteAdminSessionByToken(token);
+    clearAdminSessionCookie(res);
+    await deleteExpiredAdminSessions();
+
+    res.json({ ok: true, authenticated: false });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/admin/session", async (req, res, next) => {
+  try {
+    await deleteExpiredAdminSessions();
+    const session = req.adminSession;
+
+    if (!session) {
+      return res.json({ authenticated: false });
+    }
+
+    res.json({
+      authenticated: true,
+      created_at: session.created_at,
+      expires_at: session.expires_at
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/posts", async (req, res, next) => {
   try {
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10));
@@ -553,12 +771,8 @@ app.post("/posts/:id/like", likeLimiter, async (req, res, next) => {
   }
 });
 
-app.post("/posts", async (req, res, next) => {
+app.post("/posts", requireAdminSession, async (req, res, next) => {
   try {
-    if (!isAuthorizedAdminRequest(req)) {
-      return res.status(403).json({ error: "Forbidden." });
-    }
-
     const payload = validateCreatePostPayload(req.body);
     if (payload.errors.length > 0) {
       return res.status(400).json({
@@ -591,11 +805,7 @@ app.post("/posts", async (req, res, next) => {
   }
 });
 
-app.post("/upload", (req, res, next) => {
-  if (!isAuthorizedAdminRequest(req)) {
-    return res.status(403).json({ error: "Forbidden." });
-  }
-
+app.post("/upload", requireAdminSession, (req, res, next) => {
   upload.single("file")(req, res, (error) => {
     if (error) {
       if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {

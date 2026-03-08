@@ -294,6 +294,20 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_like_events_post_ip_created
     ON like_events(post_id, ip_hash, created_at)
   `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at
+    ON admin_sessions(expires_at)
+  `);
 }
 
 module.exports = {

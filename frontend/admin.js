@@ -1,5 +1,17 @@
 (function initAdminPage() {
-  const secretInput = document.getElementById("adminSecretInput");
+  const body = document.body;
+  if (!body || body.dataset.page !== "admin") {
+    return;
+  }
+
+  const adminEntryLink = document.getElementById("adminEntryLink");
+  const adminLogoutButton = document.getElementById("adminLogoutButton");
+  const adminSessionStatus = document.getElementById("adminSessionStatus");
+  const adminLoginView = document.getElementById("adminLoginView");
+  const adminEditorView = document.getElementById("adminEditorView");
+  const adminLoginForm = document.getElementById("adminLoginForm");
+  const adminSecretInput = document.getElementById("adminSecretInput");
+  const adminLoginStatus = document.getElementById("adminLoginStatus");
   const uploadForm = document.getElementById("uploadForm");
   const uploadFileInput = document.getElementById("uploadFileInput");
   const uploadStatus = document.getElementById("uploadStatus");
@@ -11,21 +23,18 @@
   const postStatus = document.getElementById("postStatus");
   const postResult = document.getElementById("postResult");
 
-  if (!uploadForm || !postForm) {
+  if (!adminLoginForm || !uploadForm || !postForm) {
     return;
   }
 
   let lastUpload = null;
-
-  function getSecret() {
-    return String(secretInput.value || "").trim();
-  }
 
   function asText(value) {
     return typeof value === "string" ? value.trim() : "";
   }
 
   function setStatus(element, message, isError) {
+    if (!element) return;
     element.textContent = message || "";
     element.classList.remove("status-error", "status-ok");
     if (message) {
@@ -34,7 +43,32 @@
   }
 
   function setResult(preElement, data) {
+    if (!preElement) return;
     preElement.textContent = data ? JSON.stringify(data, null, 2) : "";
+  }
+
+  function setHeaderAdminUi(isAuthenticated) {
+    if (adminEntryLink) {
+      adminEntryLink.textContent = isAuthenticated ? "Admin Panel" : "Admin";
+    }
+    if (adminLogoutButton) {
+      adminLogoutButton.hidden = !isAuthenticated;
+    }
+  }
+
+  function showLoginView(sessionMessage, isError) {
+    adminLoginView.hidden = false;
+    adminEditorView.hidden = true;
+    setStatus(adminSessionStatus, sessionMessage || "Log in to access admin tools.", Boolean(isError));
+    setHeaderAdminUi(false);
+  }
+
+  function showEditorView(sessionMessage) {
+    adminLoginView.hidden = true;
+    adminEditorView.hidden = false;
+    setStatus(adminLoginStatus, "", false);
+    setStatus(adminSessionStatus, sessionMessage || "Admin session active.", false);
+    setHeaderAdminUi(true);
   }
 
   function deriveFileName(src) {
@@ -48,7 +82,8 @@
   }
 
   async function requestJson(url, options) {
-    const response = await fetch(url, options);
+    const requestOptions = Object.assign({ credentials: "same-origin" }, options || {});
+    const response = await fetch(url, requestOptions);
     let data = null;
 
     try {
@@ -63,10 +98,80 @@
         data && Array.isArray(data.details) && data.details.length
           ? " " + data.details.join(" ")
           : "";
-      throw new Error(message + details);
+      const requestError = new Error(message + details);
+      requestError.status = response.status;
+      requestError.payload = data;
+      throw requestError;
     }
 
     return data;
+  }
+
+  async function refreshSessionUi() {
+    try {
+      const data = await requestJson("/admin/session");
+      if (data && data.authenticated) {
+        showEditorView("Logged in. You can upload files and publish posts.");
+      } else {
+        showLoginView("Log in with ADMIN_SECRET to access admin tools.", false);
+      }
+    } catch (error) {
+      showLoginView("Could not check admin session. Try again.", true);
+    }
+  }
+
+  async function forceLogoutUi(message) {
+    setHeaderAdminUi(false);
+    adminEditorView.hidden = true;
+    adminLoginView.hidden = false;
+    setStatus(adminSessionStatus, message || "Please log in as admin.", true);
+    setStatus(adminLoginStatus, "", false);
+    if (adminSecretInput) {
+      adminSecretInput.focus();
+    }
+  }
+
+  adminLoginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const secret = asText(adminSecretInput.value);
+
+    if (!secret) {
+      setStatus(adminLoginStatus, "Admin secret is required.", true);
+      return;
+    }
+
+    setStatus(adminLoginStatus, "Logging in...", false);
+
+    try {
+      await requestJson("/admin/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ secret })
+      });
+
+      adminLoginForm.reset();
+      setStatus(adminLoginStatus, "", false);
+      showEditorView("Logged in. You can upload files and publish posts.");
+    } catch (error) {
+      setStatus(adminLoginStatus, error.message || "Login failed.", true);
+      showLoginView("Admin login required.", true);
+    }
+  });
+
+  if (adminLogoutButton) {
+    adminLogoutButton.addEventListener("click", async () => {
+      adminLogoutButton.disabled = true;
+      try {
+        await requestJson("/admin/logout", { method: "POST" });
+        showLoginView("Logged out.", false);
+      } catch (error) {
+        setStatus(adminSessionStatus, error.message || "Logout failed.", true);
+      } finally {
+        adminLogoutButton.disabled = false;
+      }
+    });
   }
 
   uploadForm.addEventListener("submit", async (event) => {
@@ -74,14 +179,7 @@
     setStatus(uploadStatus, "Uploading...", false);
     setResult(uploadResult, null);
 
-    const secret = getSecret();
     const file = uploadFileInput.files && uploadFileInput.files[0];
-
-    if (!secret) {
-      setStatus(uploadStatus, "Admin secret is required.", true);
-      return;
-    }
-
     if (!file) {
       setStatus(uploadStatus, "Choose a file first.", true);
       return;
@@ -93,9 +191,6 @@
     try {
       const data = await requestJson("/upload", {
         method: "POST",
-        headers: {
-          "x-admin-secret": secret
-        },
         body: formData
       });
 
@@ -104,6 +199,10 @@
       setStatus(uploadStatus, "Upload successful.", false);
       uploadForm.reset();
     } catch (error) {
+      if (error && error.status === 401) {
+        await forceLogoutUi("Session expired. Log in again to continue.");
+        return;
+      }
       setStatus(uploadStatus, error.message || "Upload failed.", true);
     }
   });
@@ -148,14 +247,8 @@
     setStatus(postStatus, "Creating post...", false);
     setResult(postResult, null);
 
-    const secret = getSecret();
     const title = String(postTitleInput.value || "").trim();
     const blocksRaw = String(blocksInput.value || "").trim();
-
-    if (!secret) {
-      setStatus(postStatus, "Admin secret is required.", true);
-      return;
-    }
 
     if (!title) {
       setStatus(postStatus, "Post title is required.", true);
@@ -184,8 +277,7 @@
       const data = await requestJson("/posts", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "x-admin-secret": secret
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
           title,
@@ -196,7 +288,13 @@
       setResult(postResult, data);
       setStatus(postStatus, "Post created successfully.", false);
     } catch (error) {
+      if (error && error.status === 401) {
+        await forceLogoutUi("Session expired. Log in again to continue.");
+        return;
+      }
       setStatus(postStatus, error.message || "Post creation failed.", true);
     }
   });
+
+  refreshSessionUi();
 })();

@@ -15,8 +15,9 @@
         <div class="topbar-actions">
           <nav aria-label="Main">
             <a href="/" class="top-link">Home</a>
-            <a href="/admin.html" class="top-link active">Admin</a>
+            <a href="/admin" class="top-link active" id="adminEntryLink">Admin</a>
           </nav>
+          <button id="adminLogoutButton" class="top-action-button" type="button" hidden>Logout</button>
           <button id="themeToggle" class="theme-toggle" type="button">Theme: Light</button>
         </div>
       </div>
@@ -25,57 +26,67 @@
     <main class="page-shell">
       <section class="panel admin-panel">
         <header class="timeline-head">
-          <h1 class="site-title">Local Admin</h1>
-          <p class="site-subtitle">Upload a file, then create a post from JSON blocks.</p>
+          <h1 class="site-title">Admin</h1>
+          <p class="site-subtitle">Login once, then upload files and create posts.</p>
         </header>
 
-        <div class="admin-field">
-          <label for="adminSecretInput">Admin secret</label>
-          <input
-            id="adminSecretInput"
-            type="password"
-            autocomplete="off"
-            placeholder="x-admin-secret value"
-          />
-        </div>
+        <p id="adminSessionStatus" class="status-text"></p>
 
-        <div class="admin-section">
-          <h2 class="admin-section-title">1) Upload File</h2>
-          <form id="uploadForm" class="admin-form">
-            <label for="uploadFileInput">File</label>
-            <input id="uploadFileInput" name="file" type="file" required />
-            <button type="submit" class="admin-button">Upload</button>
-          </form>
-          <p id="uploadStatus" class="status-text"></p>
-          <pre id="uploadResult" class="admin-result" aria-live="polite"></pre>
-          <button id="insertMediaBlockButton" type="button" class="admin-button">
-            Insert media block from last upload
-          </button>
-        </div>
-
-        <div class="admin-section">
-          <h2 class="admin-section-title">2) Create Post</h2>
-          <form id="postForm" class="admin-form">
-            <label for="postTitleInput">Post title</label>
-            <input id="postTitleInput" type="text" maxlength="160" placeholder="Post title" required />
-
-            <label for="blocksInput">Blocks JSON</label>
-            <textarea
-              id="blocksInput"
-              rows="12"
-              placeholder='[{"type":"paragraph","text":"Hello"}]'
+        <section id="adminLoginView" class="admin-auth">
+          <h2 class="admin-section-title">Admin Login</h2>
+          <form id="adminLoginForm" class="admin-form admin-auth-form">
+            <label for="adminSecretInput">Admin secret</label>
+            <input
+              id="adminSecretInput"
+              name="secret"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Enter ADMIN_SECRET"
               required
-            ></textarea>
-
-            <button type="submit" class="admin-button">Create Post</button>
+            />
+            <button type="submit" class="admin-button">Login</button>
           </form>
-          <p id="postStatus" class="status-text"></p>
-          <pre id="postResult" class="admin-result" aria-live="polite"></pre>
-        </div>
+          <p id="adminLoginStatus" class="status-text"></p>
+        </section>
 
-        <details class="admin-section">
-          <summary class="admin-section-title">Example Blocks JSON</summary>
-          <pre class="admin-result">[
+        <section id="adminEditorView" hidden>
+          <div class="admin-section admin-section-first">
+            <h2 class="admin-section-title">1) Upload File</h2>
+            <form id="uploadForm" class="admin-form">
+              <label for="uploadFileInput">File</label>
+              <input id="uploadFileInput" name="file" type="file" required />
+              <button type="submit" class="admin-button">Upload</button>
+            </form>
+            <p id="uploadStatus" class="status-text"></p>
+            <pre id="uploadResult" class="admin-result" aria-live="polite"></pre>
+            <button id="insertMediaBlockButton" type="button" class="admin-button">
+              Insert media block from last upload
+            </button>
+          </div>
+
+          <div class="admin-section">
+            <h2 class="admin-section-title">2) Create Post</h2>
+            <form id="postForm" class="admin-form">
+              <label for="postTitleInput">Post title</label>
+              <input id="postTitleInput" type="text" maxlength="160" placeholder="Post title" required />
+
+              <label for="blocksInput">Blocks JSON</label>
+              <textarea
+                id="blocksInput"
+                rows="12"
+                placeholder='[{"type":"paragraph","text":"Hello"}]'
+                required
+              ></textarea>
+
+              <button type="submit" class="admin-button">Create Post</button>
+            </form>
+            <p id="postStatus" class="status-text"></p>
+            <pre id="postResult" class="admin-result" aria-live="polite"></pre>
+          </div>
+
+          <details class="admin-section">
+            <summary class="admin-section-title">Example Blocks JSON</summary>
+            <pre class="admin-result">[
   { "type": "heading", "level": 2, "text": "Morning Notes" },
   { "type": "paragraph", "text": "First paragraph of the post." },
   { "type": "quote", "text": "Short quote line." },
@@ -94,7 +105,8 @@
     "name": "notes.pdf"
   }
 ]</pre>
-        </details>
+          </details>
+        </section>
       </section>
     </main>
   </body>

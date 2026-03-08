@@ -1,6 +1,12 @@
 (function bootstrap() {
   const page = document.body && document.body.dataset ? document.body.dataset.page : "";
 
+  if (page === "feed" || page === "post") {
+    initTopbarAdminUi().catch((error) => {
+      console.error(error);
+    });
+  }
+
   if (page === "feed") {
     initFeedPage().catch((error) => {
       console.error(error);
@@ -41,6 +47,50 @@ async function fetchJson(url, options) {
   }
 
   return data;
+}
+
+async function initTopbarAdminUi() {
+  const adminEntryLink = document.getElementById("adminEntryLink");
+  const adminLogoutButton = document.getElementById("adminLogoutButton");
+
+  if (!adminEntryLink && !adminLogoutButton) {
+    return;
+  }
+
+  function applyAdminUi(authenticated) {
+    if (adminEntryLink) {
+      adminEntryLink.textContent = authenticated ? "Admin Panel" : "Admin";
+    }
+    if (adminLogoutButton) {
+      adminLogoutButton.hidden = !authenticated;
+    }
+  }
+
+  async function refreshAdminUi() {
+    try {
+      const session = await fetchJson("/admin/session");
+      applyAdminUi(Boolean(session && session.authenticated));
+    } catch (error) {
+      applyAdminUi(false);
+    }
+  }
+
+  if (adminLogoutButton) {
+    adminLogoutButton.addEventListener("click", async () => {
+      adminLogoutButton.disabled = true;
+
+      try {
+        await fetchJson("/admin/logout", { method: "POST" });
+        applyAdminUi(false);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        adminLogoutButton.disabled = false;
+      }
+    });
+  }
+
+  await refreshAdminUi();
 }
 
 function formatDate(dateString) {
