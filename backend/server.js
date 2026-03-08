@@ -41,6 +41,7 @@ const commentLimiter = rateLimit({
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: "Too many comments from this IP. Please try again in a minute." }
 });
 
@@ -125,6 +126,12 @@ function getClientIp(req) {
 
 function hashIpAddress(ipAddress) {
   return crypto.createHash("sha256").update(`${likeIpHashSalt}:${ipAddress}`).digest("hex");
+}
+
+function isAuthorizedAdminRequest(req) {
+  const rawHeader = req.headers["x-admin-secret"];
+  const providedSecret = Array.isArray(rawHeader) ? asText(rawHeader[0]) : asText(rawHeader);
+  return providedSecret === adminSecret;
 }
 
 function parsePositivePostId(value) {
@@ -548,7 +555,7 @@ app.post("/posts/:id/like", likeLimiter, async (req, res, next) => {
 
 app.post("/posts", async (req, res, next) => {
   try {
-    if (req.headers["x-admin-secret"] !== adminSecret) {
+    if (!isAuthorizedAdminRequest(req)) {
       return res.status(403).json({ error: "Forbidden." });
     }
 
@@ -585,7 +592,7 @@ app.post("/posts", async (req, res, next) => {
 });
 
 app.post("/upload", (req, res, next) => {
-  if (req.headers["x-admin-secret"] !== adminSecret) {
+  if (!isAuthorizedAdminRequest(req)) {
     return res.status(403).json({ error: "Forbidden." });
   }
 

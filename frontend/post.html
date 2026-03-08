@@ -46,7 +46,17 @@
             required
           ></textarea>
 
-          <input name="website" type="text" class="honeypot" autocomplete="off" tabindex="-1" />
+          <div class="honeypot-wrap" aria-hidden="true">
+            <label for="websiteInput">Website</label>
+            <input
+              id="websiteInput"
+              name="website"
+              type="text"
+              class="honeypot"
+              autocomplete="off"
+              tabindex="-1"
+            />
+          </div>
 
           <button type="submit">Send Comment</button>
           <p id="commentStatus" class="status-text"></p>

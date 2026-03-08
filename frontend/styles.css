@@ -660,8 +660,12 @@ select {
   background: linear-gradient(180deg, var(--button-bg-start-hover), var(--button-bg-end-hover));
 }
 
-.honeypot {
-  display: none;
+.honeypot-wrap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
 }
 
 .admin-field {

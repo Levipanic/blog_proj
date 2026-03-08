@@ -59,6 +59,15 @@ function asText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function previewText(text, maxLength) {
   const value = asText(text);
   if (!value) return "";
@@ -347,8 +356,9 @@ async function initFeedPage() {
       comments.forEach((comment) => {
         const item = document.createElement("li");
         item.className = "reply-item";
-        item.textContent =
-          (comment.name || "Anonymous") + ": " + previewText(comment.content || "", 90);
+        const safeName = escapeHtml(comment.name || "Anonymous");
+        const safePreview = escapeHtml(previewText(comment.content || "", 90));
+        item.innerHTML = safeName + ": " + safePreview;
         list.appendChild(item);
       });
 
@@ -622,11 +632,13 @@ function renderComments(commentListEl, comments) {
 
     const meta = document.createElement("p");
     meta.className = "meta-line";
-    meta.textContent = (comment.name || "Anonymous") + " | " + formatDate(comment.created_at);
+    const safeName = escapeHtml(comment.name || "Anonymous");
+    const safeDate = escapeHtml(formatDate(comment.created_at));
+    meta.innerHTML = safeName + " | " + safeDate;
 
     const body = document.createElement("p");
     body.className = "comment-body";
-    body.textContent = comment.content || "";
+    body.innerHTML = escapeHtml(comment.content || "");
 
     li.appendChild(meta);
     li.appendChild(body);
