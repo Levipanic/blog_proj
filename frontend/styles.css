@@ -1,0 +1,304 @@
+:root {
+  --bg: #c0deed;
+  --paper: #f5f8fa;
+  --panel: #ffffff;
+  --line: #d8e5ef;
+  --line-strong: #b8ccd9;
+  --text: #14171a;
+  --muted: #657786;
+  --link: #1b95e0;
+  --topbar: #3b94d9;
+  --topbar-dark: #2f7fbe;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: "Trebuchet MS", Tahoma, Verdana, sans-serif;
+  background: linear-gradient(180deg, #bfe2f6 0%, var(--bg) 320px, var(--paper) 321px, var(--paper) 100%);
+}
+
+a {
+  color: var(--link);
+}
+
+.topbar {
+  background: linear-gradient(180deg, var(--topbar) 0%, var(--topbar-dark) 100%);
+  border-bottom: 1px solid #2b6f9d;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  height: 52px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand-mark {
+  margin: 0;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.top-link {
+  color: rgba(255, 255, 255, 0.95);
+  text-decoration: none;
+  margin-left: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+.top-link.active,
+.top-link:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.page-shell {
+  width: min(1080px, 96vw);
+  margin: 14px auto 30px;
+}
+
+.timeline-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.thread-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.site-title {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.site-subtitle {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.timeline-title {
+  margin: 0 0 8px;
+}
+
+.status-text {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.93rem;
+}
+
+.feed-list,
+.comment-list,
+.reply-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.feed-item {
+  border-top: 1px solid var(--line);
+}
+
+.feed-item:first-child {
+  border-top: 0;
+}
+
+.tweet-card {
+  padding: 11px 2px 12px;
+  cursor: pointer;
+}
+
+.tweet-card:hover {
+  background: #f7fbff;
+}
+
+.tweet-card:focus {
+  outline: 2px solid #9fd1f4;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.tweet-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tweet-user {
+  font-size: 0.97rem;
+}
+
+.tweet-handle,
+.tweet-sep,
+.tweet-date {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tweet-text {
+  margin: 7px 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tweet-text-full {
+  font-size: 1.03rem;
+  line-height: 1.45;
+}
+
+.tweet-image {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  display: block;
+  margin: 8px 0 10px;
+  background: #f0f4f7;
+}
+
+.reply-preview {
+  border-top: 1px dashed var(--line-strong);
+  padding-top: 8px;
+}
+
+.reply-empty {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.reply-item {
+  font-size: 0.9rem;
+  color: #2c3e50;
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-link {
+  display: inline-block;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
+}
+
+.comment-card {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.comment-card:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.meta-line {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 0.87rem;
+}
+
+.comment-body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.comment-form {
+  margin-top: 12px;
+  display: grid;
+  gap: 7px;
+}
+
+.comment-form label {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.comment-form input,
+.comment-form textarea,
+.comment-form button {
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 8px;
+  font: inherit;
+  width: 100%;
+}
+
+.comment-form textarea {
+  resize: vertical;
+}
+
+.comment-form button {
+  background: linear-gradient(180deg, #3ea5ee 0%, #2b86cb 100%);
+  color: #fff;
+  cursor: pointer;
+}
+
+.comment-form button:hover {
+  background: linear-gradient(180deg, #3699dd 0%, #256fa8 100%);
+}
+
+.small-note {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.honeypot {
+  display: none;
+}
+
+.thread-main {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 980px) {
+  .timeline-shell {
+    grid-template-columns: 240px minmax(0, 1fr) 260px;
+    align-items: start;
+  }
+
+  .thread-shell {
+    grid-template-columns: 240px minmax(0, 1fr) 260px;
+    align-items: start;
+  }
+}
+
+@media (max-width: 979px) {
+  .timeline-panel,
+  .thread-main {
+    order: 1;
+  }
+
+  .profile-panel {
+    order: 2;
+  }
+
+  .info-panel {
+    order: 3;
+  }
+}

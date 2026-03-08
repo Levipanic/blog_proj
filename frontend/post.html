@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Notebook - Post</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body data-page="post">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <p class="brand-mark">Pixel Notebook</p>
+        <nav aria-label="Main">
+          <a href="/" class="top-link">Home</a>
+          <a href="#" class="top-link active">Post</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page-shell thread-shell">
+      <aside class="panel profile-panel">
+        <h1 class="site-title">Thread View</h1>
+        <p class="site-subtitle">Reading one post and all comments.</p>
+        <p><a href="/" class="inline-link">Back to feed</a></p>
+      </aside>
+
+      <section class="thread-main">
+        <article class="panel post-article">
+          <p id="postStatus" class="status-text">Loading post...</p>
+          <section id="postView"></section>
+        </article>
+
+        <section class="panel comments-panel">
+          <h2>Comments</h2>
+          <ul id="commentList" class="comment-list"></ul>
+
+          <form id="commentForm" class="comment-form">
+            <label for="nameInput">Name (optional)</label>
+            <input id="nameInput" name="name" type="text" placeholder="Anonymous visitor" />
+
+            <label for="contentInput">Comment</label>
+            <textarea
+              id="contentInput"
+              name="content"
+              rows="4"
+              placeholder="Leave a note..."
+              required
+            ></textarea>
+
+            <input name="website" type="text" class="honeypot" autocomplete="off" tabindex="-1" />
+
+            <button type="submit">Send Comment</button>
+            <p id="commentStatus" class="status-text"></p>
+          </form>
+        </section>
+      </section>
+
+      <aside class="panel info-panel">
+        <h2>Thread Tips</h2>
+        <p>Comments are shown in full here.</p>
+        <p class="small-note">The feed page only shows a small preview of replies.</p>
+      </aside>
+    </main>
+  </body>
+</html>
