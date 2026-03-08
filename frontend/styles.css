@@ -230,6 +230,50 @@ select {
   font-size: clamp(1.3rem, 6vw, 1.75rem);
 }
 
+.like-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.7rem;
+  margin: 0.2rem 0 0.6rem;
+}
+
+.like-button {
+  min-height: 2.45rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #b5c8d6;
+  border-radius: 999px;
+  background: #f8fcff;
+  color: #1f4a66;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.like-button:hover {
+  background: #eef8ff;
+}
+
+.like-button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.like-count {
+  margin: 0;
+  color: #3f5767;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.like-status {
+  flex-basis: 100%;
+  margin: 0;
+  min-height: 1.1rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .tweet-text {
   margin: 0.45rem 0 0.6rem;
   font-size: 0.96rem;

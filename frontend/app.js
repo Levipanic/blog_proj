@@ -34,7 +34,10 @@ async function fetchJson(url, options) {
 
   if (!response.ok) {
     const message = data && data.error ? data.error : "Request failed.";
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = data;
+    throw error;
   }
 
   return data;
@@ -147,11 +150,78 @@ function wireCardNavigation(cardEl, href) {
     window.location.href = href;
   });
   cardEl.addEventListener("keydown", (event) => {
+    if (event.target.closest("a, button, input, textarea")) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       window.location.href = href;
     }
   });
+}
+
+function normalizeLikeCount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return 0;
+  return Math.floor(number);
+}
+
+function formatLikeText(likes) {
+  return likes + " like" + (likes === 1 ? "" : "s");
+}
+
+function createLikeControl(postId, initialLikes) {
+  const wrap = document.createElement("div");
+  wrap.className = "like-row";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "like-button";
+  button.textContent = "Like";
+  button.setAttribute("aria-label", "Like this post");
+  wrap.appendChild(button);
+
+  const count = document.createElement("p");
+  count.className = "like-count";
+  let likes = normalizeLikeCount(initialLikes);
+  count.textContent = formatLikeText(likes);
+  wrap.appendChild(count);
+
+  const status = document.createElement("p");
+  status.className = "like-status";
+  status.setAttribute("aria-live", "polite");
+  wrap.appendChild(status);
+
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = "Sending...";
+
+    try {
+      const result = await fetchJson("/posts/" + encodeURIComponent(postId) + "/like", {
+        method: "POST"
+      });
+      likes = normalizeLikeCount(result && result.likes);
+      count.textContent = formatLikeText(likes);
+      status.textContent = "Thanks! Like saved.";
+
+      window.setTimeout(() => {
+        if (status.textContent === "Thanks! Like saved.") {
+          status.textContent = "";
+        }
+      }, 1800);
+    } catch (error) {
+      if (error && error.status === 429) {
+        status.textContent = error.message || "Please wait before liking again.";
+      } else if (error && error.status === 404) {
+        status.textContent = "This post no longer exists.";
+      } else {
+        status.textContent = "Failed to save like.";
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  return wrap;
 }
 
 async function loadCommentPreview(postId) {
@@ -248,6 +318,8 @@ async function initFeedPage() {
     title.className = "tweet-title";
     title.textContent = asText(post.title) || "Untitled post";
     card.appendChild(title);
+
+    card.appendChild(createLikeControl(post.id, post.likes));
 
     const text = document.createElement("p");
     text.className = "tweet-text";
@@ -394,6 +466,7 @@ function renderPost(postViewEl, post) {
   title.className = "tweet-title tweet-title-full";
   title.textContent = asText(post.title) || "Untitled post";
   card.appendChild(title);
+  card.appendChild(createLikeControl(post.id, post.likes));
 
   const blocksWrap = document.createElement("div");
   blocksWrap.className = "post-blocks";

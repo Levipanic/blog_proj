@@ -109,11 +109,6 @@ function ensureSeedMediaFiles() {
   );
 
   ensureSeedFile(
-    "seed-note.txt",
-    "Pixel Notebook seed file.\nThis placeholder demonstrates file attachments.\n"
-  );
-
-  ensureSeedFile(
     "seed-guide.md",
     "# Seed Guide\n\nThis markdown file is used by the seeded file media block.\n"
   );
@@ -246,12 +241,13 @@ async function initDb() {
   if (postsTable) {
     const postColumns = await all("PRAGMA table_info(posts)");
     const postColumnNames = postColumns.map((column) => column.name);
-    const expectedColumns = ["id", "title", "blocks_json", "created_at"];
-    const hasExpectedSchema =
-      expectedColumns.length === postColumnNames.length &&
-      expectedColumns.every((columnName) => postColumnNames.includes(columnName));
+    const requiredColumns = ["id", "title", "blocks_json", "created_at"];
+    const hasRequiredSchema = requiredColumns.every((columnName) =>
+      postColumnNames.includes(columnName)
+    );
 
-    if (!hasExpectedSchema) {
+    if (!hasRequiredSchema) {
+      await run("DROP TABLE IF EXISTS like_events");
       await run("DROP TABLE IF EXISTS comments");
       await run("DROP TABLE IF EXISTS posts");
     }
@@ -262,9 +258,16 @@ async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
       blocks_json TEXT NOT NULL,
+      likes_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  const postColumnsAfterCreate = await all("PRAGMA table_info(posts)");
+  const hasLikesCountColumn = postColumnsAfterCreate.some((column) => column.name === "likes_count");
+  if (!hasLikesCountColumn) {
+    await run("ALTER TABLE posts ADD COLUMN likes_count INTEGER NOT NULL DEFAULT 0");
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS comments (
@@ -275,6 +278,21 @@ async function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
     )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS like_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL,
+      ip_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_like_events_post_ip_created
+    ON like_events(post_id, ip_hash, created_at)
   `);
 }
 

@@ -13,6 +13,19 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const adminSecret = process.env.ADMIN_SECRET || "change-me";
 
+function getPositiveInt(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+  return Math.floor(number);
+}
+
+const likeCooldownSeconds = getPositiveInt(process.env.LIKE_COOLDOWN_SECONDS, 10);
+const likeCooldownMs = likeCooldownSeconds * 1000;
+const likeRateLimitMax = getPositiveInt(process.env.LIKE_RATE_LIMIT_MAX, 20);
+const likeIpHashSalt = process.env.LIKE_IP_HASH_SALT || adminSecret;
+
 const uploadsDir = path.join(__dirname, "..", "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -29,6 +42,15 @@ const commentLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many comments from this IP. Please try again in a minute." }
+});
+
+const likeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: likeRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+  message: { error: "Too many like requests from this IP. Please wait a minute and try again." }
 });
 
 const allowedMediaKinds = new Set(["image", "gif", "video", "audio", "file"]);
@@ -87,6 +109,44 @@ function removeFileIfExists(filePath) {
   fs.unlink(filePath, () => {
     return;
   });
+}
+
+function getClientIp(req) {
+  const forwardedHeader = req.headers["x-forwarded-for"];
+  const forwarded = Array.isArray(forwardedHeader) ? forwardedHeader[0] : asText(forwardedHeader);
+
+  if (forwarded) {
+    const [first] = forwarded.split(",");
+    return asText(first) || "unknown";
+  }
+
+  return asText(req.ip) || "unknown";
+}
+
+function hashIpAddress(ipAddress) {
+  return crypto.createHash("sha256").update(`${likeIpHashSalt}:${ipAddress}`).digest("hex");
+}
+
+function parsePositivePostId(value) {
+  const postId = Number(value);
+  if (!Number.isInteger(postId) || postId <= 0) {
+    return null;
+  }
+  return postId;
+}
+
+function asLikeCount(value) {
+  const likes = Number(value);
+  if (!Number.isFinite(likes) || likes < 0) {
+    return 0;
+  }
+  return Math.floor(likes);
+}
+
+function parseUtcMillis(sqlDateText) {
+  const parsed = new Date(String(sqlDateText || "").replace(" ", "T") + "Z");
+  const millis = parsed.getTime();
+  return Number.isNaN(millis) ? 0 : millis;
 }
 
 function normalizeBlock(rawBlock) {
@@ -302,7 +362,7 @@ app.get("/posts", async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const rows = await all(
-      "SELECT id, title, blocks_json, created_at FROM posts ORDER BY datetime(created_at) DESC, id DESC LIMIT ? OFFSET ?",
+      "SELECT id, title, blocks_json, likes_count, created_at FROM posts ORDER BY datetime(created_at) DESC, id DESC LIMIT ? OFFSET ?",
       [limit, offset]
     );
     const items = rows.map((row) => {
@@ -310,6 +370,7 @@ app.get("/posts", async (req, res, next) => {
       return {
         id: row.id,
         title: row.title,
+        likes: asLikeCount(row.likes_count),
         created_at: row.created_at,
         preview_text: getPreviewText(blocks),
         preview_media: getPreviewMedia(blocks)
@@ -333,9 +394,10 @@ app.get("/posts", async (req, res, next) => {
 
 app.get("/posts/:id", async (req, res, next) => {
   try {
-    const row = await get("SELECT id, title, blocks_json, created_at FROM posts WHERE id = ?", [
-      req.params.id
-    ]);
+    const row = await get(
+      "SELECT id, title, blocks_json, likes_count, created_at FROM posts WHERE id = ?",
+      [req.params.id]
+    );
 
     if (!row) {
       return res.status(404).json({ error: "Post not found." });
@@ -344,6 +406,7 @@ app.get("/posts/:id", async (req, res, next) => {
     res.json({
       id: row.id,
       title: row.title,
+      likes: asLikeCount(row.likes_count),
       created_at: row.created_at,
       blocks: parseBlocksJson(row.blocks_json)
     });
@@ -411,6 +474,78 @@ app.post("/comments", commentLimiter, async (req, res, next) => {
   }
 });
 
+app.get("/posts/:id/likes", async (req, res, next) => {
+  try {
+    const postId = parsePositivePostId(req.params.id);
+    if (!postId) {
+      return res.status(400).json({ error: "Invalid post id." });
+    }
+
+    const post = await get("SELECT id, likes_count FROM posts WHERE id = ?", [postId]);
+    if (!post) {
+      return res.status(404).json({ error: "Post not found." });
+    }
+
+    res.json({
+      postId: post.id,
+      likes: asLikeCount(post.likes_count)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/posts/:id/like", likeLimiter, async (req, res, next) => {
+  try {
+    const postId = parsePositivePostId(req.params.id);
+    if (!postId) {
+      return res.status(400).json({ error: "Invalid post id." });
+    }
+
+    const post = await get("SELECT id FROM posts WHERE id = ?", [postId]);
+    if (!post) {
+      return res.status(404).json({ error: "Post not found." });
+    }
+
+    const ipAddress = getClientIp(req);
+    const ipHash = hashIpAddress(ipAddress);
+    const recentLike = await get(
+      "SELECT created_at FROM like_events WHERE post_id = ? AND ip_hash = ? ORDER BY datetime(created_at) DESC, id DESC LIMIT 1",
+      [postId, ipHash]
+    );
+
+    if (recentLike) {
+      const recentLikeMillis = parseUtcMillis(recentLike.created_at);
+      if (recentLikeMillis > 0) {
+        const retryAtMillis = recentLikeMillis + likeCooldownMs;
+        if (Date.now() < retryAtMillis) {
+          const retryAfterSeconds = Math.max(1, Math.ceil((retryAtMillis - Date.now()) / 1000));
+          return res.status(429).json({
+            error: `You already liked this post recently. Please wait about ${retryAfterSeconds} seconds.`
+          });
+        }
+      }
+    }
+
+    await run("INSERT INTO like_events (post_id, ip_hash, created_at) VALUES (?, ?, datetime('now'))", [
+      postId,
+      ipHash
+    ]);
+    await run("UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?", [postId]);
+    await run("DELETE FROM like_events WHERE datetime(created_at) < datetime('now', '-14 day')");
+
+    const updatedPost = await get("SELECT likes_count FROM posts WHERE id = ?", [postId]);
+
+    res.json({
+      success: true,
+      postId,
+      likes: asLikeCount(updatedPost && updatedPost.likes_count)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/posts", async (req, res, next) => {
   try {
     if (req.headers["x-admin-secret"] !== adminSecret) {
@@ -432,13 +567,15 @@ app.post("/posts", async (req, res, next) => {
       [title, JSON.stringify(blocks)]
     );
 
-    const newPost = await get("SELECT id, title, blocks_json, created_at FROM posts WHERE id = ?", [
-      result.lastID
-    ]);
+    const newPost = await get(
+      "SELECT id, title, blocks_json, likes_count, created_at FROM posts WHERE id = ?",
+      [result.lastID]
+    );
 
     res.status(201).json({
       id: newPost.id,
       title: newPost.title,
+      likes: asLikeCount(newPost.likes_count),
       created_at: newPost.created_at,
       blocks: parseBlocksJson(newPost.blocks_json)
     });
