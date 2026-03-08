@@ -252,6 +252,37 @@ select {
   white-space: nowrap;
 }
 
+.language-switch {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--top-control-border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--top-control-bg);
+}
+
+.language-option {
+  min-height: 2.5rem;
+  padding: 0.35rem 0.62rem;
+  border: 0;
+  border-right: 1px solid var(--top-control-border);
+  background: transparent;
+  color: var(--top-control-text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.language-option:last-child {
+  border-right: 0;
+}
+
+.language-option:hover,
+.language-option.is-active {
+  background: var(--top-control-hover);
+}
+
 .theme-toggle:hover,
 .theme-toggle[aria-pressed="true"],
 .top-action-button:hover {

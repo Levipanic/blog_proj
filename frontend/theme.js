@@ -1,8 +1,15 @@
 (function initTheme() {
-  const STORAGE_KEY = "pixelNotebookTheme";
+  const STORAGE_KEY = "stereoDamageTheme";
   const THEMES = new Set(["light", "dark"]);
   const root = document.documentElement;
   const toggle = document.getElementById("themeToggle");
+
+  function t(key, params, fallback) {
+    if (window.i18n && typeof window.i18n.t === "function") {
+      return window.i18n.t(key, params);
+    }
+    return fallback || "";
+  }
 
   function readSavedTheme() {
     try {
@@ -39,8 +46,20 @@
   function updateToggle(theme) {
     if (!toggle) return;
     const nextTheme = theme === "dark" ? "light" : "dark";
-    toggle.textContent = "Theme: " + (theme === "dark" ? "Dark" : "Light");
-    toggle.setAttribute("aria-label", "Switch to " + nextTheme + " theme");
+    const currentThemeLabel =
+      theme === "dark"
+        ? t("theme.dark", null, "Dark")
+        : t("theme.light", null, "Light");
+    const nextThemeLabel =
+      nextTheme === "dark"
+        ? t("theme.dark", null, "Dark")
+        : t("theme.light", null, "Light");
+
+    toggle.textContent = t("theme.label", { theme: currentThemeLabel }, "Theme: " + currentThemeLabel);
+    toggle.setAttribute(
+      "aria-label",
+      t("theme.switchTo", { theme: nextThemeLabel }, "Switch to " + nextThemeLabel + " theme")
+    );
     toggle.setAttribute("aria-pressed", String(theme === "dark"));
   }
 
@@ -55,6 +74,10 @@
       updateToggle(appliedTheme);
     });
   }
+
+  window.addEventListener("languagechange", () => {
+    updateToggle(getCurrentTheme());
+  });
 
   if (window.matchMedia) {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");

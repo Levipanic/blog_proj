@@ -11,7 +11,7 @@
     initFeedPage().catch((error) => {
       console.error(error);
       const statusEl = document.getElementById("feedStatus");
-      if (statusEl) statusEl.textContent = "Failed to load timeline.";
+      if (statusEl) statusEl.textContent = t("feed.loadError", null, "Failed to load timeline.");
     });
     return;
   }
@@ -20,13 +20,36 @@
     initPostPage().catch((error) => {
       console.error(error);
       const postStatusEl = document.getElementById("postStatus");
-      if (postStatusEl) postStatusEl.textContent = "Failed to load post.";
+      if (postStatusEl) postStatusEl.textContent = t("post.loadError", null, "Failed to load post.");
     });
   }
 })();
 
+const BLOG_NAME = "StereoDamage";
+const BLOG_HANDLE = "@stereodamage";
 const PLACEHOLDER_IMAGE = "/uploads/missingno.png";
 const ALLOWED_MEDIA_KINDS = new Set(["image", "gif", "video", "audio", "file"]);
+
+function t(key, params, fallback) {
+  if (window.i18n && typeof window.i18n.t === "function") {
+    return window.i18n.t(key, params);
+  }
+  return fallback || String(key || "");
+}
+
+function translateErrorMessage(error, fallbackKey, fallbackText) {
+  const rawMessage = error && error.message ? error.message : "";
+  if (window.i18n && typeof window.i18n.translateError === "function") {
+    const translated = window.i18n.translateError(rawMessage);
+    if (translated) {
+      return translated;
+    }
+  }
+  if (rawMessage) {
+    return rawMessage;
+  }
+  return t(fallbackKey, null, fallbackText);
+}
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -39,7 +62,7 @@ async function fetchJson(url, options) {
   }
 
   if (!response.ok) {
-    const message = data && data.error ? data.error : "Request failed.";
+    const message = data && data.error ? data.error : t("common.requestFailed", null, "Request failed.");
     const error = new Error(message);
     error.status = response.status;
     error.payload = data;
@@ -59,7 +82,9 @@ async function initTopbarAdminUi() {
 
   function applyAdminUi(authenticated) {
     if (adminEntryLink) {
-      adminEntryLink.textContent = authenticated ? "Admin Panel" : "Admin";
+      adminEntryLink.textContent = authenticated
+        ? t("nav.adminPanel", null, "Admin Panel")
+        : t("nav.admin", null, "Admin");
     }
     if (adminLogoutButton) {
       adminLogoutButton.hidden = !authenticated;
@@ -97,7 +122,10 @@ function formatDate(dateString) {
   if (!dateString) return "";
   const date = new Date(dateString.replace(" ", "T") + "Z");
   if (Number.isNaN(date.getTime())) return dateString;
-  return date.toLocaleString();
+  const language =
+    window.i18n && typeof window.i18n.getLanguage === "function" ? window.i18n.getLanguage() : "en";
+  const locale = language === "ru" ? "ru-RU" : "en-US";
+  return date.toLocaleString(locale);
 }
 
 function toMillis(dateString) {
@@ -133,10 +161,10 @@ function safeMediaSrc(value) {
 
 function deriveFileNameFromSrc(src) {
   const safeSrc = safeMediaSrc(src);
-  if (!safeSrc) return "file";
+  if (!safeSrc) return t("common.file", null, "file");
 
   const parts = safeSrc.split("/");
-  const lastPart = parts[parts.length - 1] || "file";
+  const lastPart = parts[parts.length - 1] || t("common.file", null, "file");
 
   try {
     return decodeURIComponent(lastPart);
@@ -224,7 +252,7 @@ function normalizeLikeCount(value) {
 }
 
 function formatLikeText(likes) {
-  return likes + " like" + (likes === 1 ? "" : "s");
+  return t("feed.likeCount", { count: likes }, likes + " like" + (likes === 1 ? "" : "s"));
 }
 
 function createLikeControl(postId, initialLikes) {
@@ -234,8 +262,8 @@ function createLikeControl(postId, initialLikes) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "like-button";
-  button.textContent = "Like";
-  button.setAttribute("aria-label", "Like this post");
+  button.textContent = t("feed.like", null, "Like");
+  button.setAttribute("aria-label", t("feed.likeAria", null, "Like this post"));
   wrap.appendChild(button);
 
   const count = document.createElement("p");
@@ -252,7 +280,7 @@ function createLikeControl(postId, initialLikes) {
   button.addEventListener("click", async (event) => {
     event.preventDefault();
     button.disabled = true;
-    status.textContent = "Sending...";
+    status.textContent = t("feed.sending", null, "Sending...");
 
     try {
       const result = await fetchJson("/posts/" + encodeURIComponent(postId) + "/like", {
@@ -260,20 +288,25 @@ function createLikeControl(postId, initialLikes) {
       });
       likes = normalizeLikeCount(result && result.likes);
       count.textContent = formatLikeText(likes);
-      status.textContent = "Thanks! Like saved.";
+      const successMessage = t("feed.likeSuccess", null, "Thanks! Like saved.");
+      status.textContent = successMessage;
 
       window.setTimeout(() => {
-        if (status.textContent === "Thanks! Like saved.") {
+        if (status.textContent === successMessage) {
           status.textContent = "";
         }
       }, 1800);
     } catch (error) {
       if (error && error.status === 429) {
-        status.textContent = error.message || "Please wait before liking again.";
+        status.textContent = translateErrorMessage(
+          error,
+          "feed.likeTooFast",
+          "Please wait before liking again."
+        );
       } else if (error && error.status === 404) {
-        status.textContent = "This post no longer exists.";
+        status.textContent = t("feed.likeMissing", null, "This post no longer exists.");
       } else {
-        status.textContent = "Failed to save like.";
+        status.textContent = translateErrorMessage(error, "feed.likeError", "Failed to save like.");
       }
     } finally {
       button.disabled = false;
@@ -308,7 +341,7 @@ function renderFeedPreviewMedia(post) {
   const image = document.createElement("img");
   image.className = "tweet-thumb";
   image.src = src;
-  image.alt = asText(post.preview_media.alt) || asText(post.title) || "Post media";
+  image.alt = asText(post.preview_media.alt) || asText(post.title) || t("common.postMedia", null, "Post media");
   attachPlaceholderFallback(image);
   return image;
 }
@@ -327,7 +360,7 @@ async function initFeedPage() {
   });
 
   if (posts.length === 0) {
-    feedStatusEl.textContent = "No posts yet.";
+    feedStatusEl.textContent = t("feed.empty", null, "No posts yet.");
     feedListEl.innerHTML = "";
     return;
   }
@@ -337,7 +370,7 @@ async function initFeedPage() {
   );
   const commentPreviewByPostId = new Map(previewEntries);
 
-  feedStatusEl.textContent = posts.length + " post(s), newest first.";
+  feedStatusEl.textContent = t("feed.summary", { count: posts.length }, posts.length + " post(s), newest first.");
   feedListEl.innerHTML = "";
 
   posts.forEach((post) => {
@@ -353,11 +386,11 @@ async function initFeedPage() {
 
     const author = document.createElement("strong");
     author.className = "tweet-user";
-    author.textContent = "Pixel Notebook";
+    author.textContent = BLOG_NAME;
 
     const handle = document.createElement("span");
     handle.className = "tweet-handle";
-    handle.textContent = "@microblog";
+    handle.textContent = BLOG_HANDLE;
 
     const dot = document.createElement("span");
     dot.className = "tweet-sep";
@@ -375,14 +408,14 @@ async function initFeedPage() {
 
     const title = document.createElement("h2");
     title.className = "tweet-title";
-    title.textContent = asText(post.title) || "Untitled post";
+    title.textContent = asText(post.title) || t("feed.untitled", null, "Untitled post");
     card.appendChild(title);
 
     card.appendChild(createLikeControl(post.id, post.likes));
 
     const text = document.createElement("p");
     text.className = "tweet-text";
-    text.textContent = previewText(post.preview_text, 240) || "No paragraph preview.";
+    text.textContent = previewText(post.preview_text, 240) || t("feed.noPreview", null, "No paragraph preview.");
     card.appendChild(text);
 
     const previewMedia = renderFeedPreviewMedia(post);
@@ -397,7 +430,7 @@ async function initFeedPage() {
     if (comments.length === 0) {
       const empty = document.createElement("p");
       empty.className = "reply-empty";
-      empty.textContent = "No replies yet.";
+      empty.textContent = t("feed.noReplies", null, "No replies yet.");
       previewWrap.appendChild(empty);
     } else {
       const list = document.createElement("ul");
@@ -406,7 +439,7 @@ async function initFeedPage() {
       comments.forEach((comment) => {
         const item = document.createElement("li");
         item.className = "reply-item";
-        const safeName = escapeHtml(comment.name || "Anonymous");
+        const safeName = escapeHtml(comment.name || t("common.anonymous", null, "Anonymous"));
         const safePreview = escapeHtml(previewText(comment.content || "", 90));
         item.innerHTML = safeName + ": " + safePreview;
         list.appendChild(item);
@@ -418,7 +451,11 @@ async function initFeedPage() {
     const openLink = document.createElement("a");
     openLink.className = "inline-link";
     openLink.href = createThreadUrl(post.id);
-    openLink.textContent = "Open full post and all comments";
+    openLink.textContent = t(
+      "feed.openFull",
+      null,
+      "Open full post and all comments"
+    );
 
     previewWrap.appendChild(openLink);
     card.appendChild(previewWrap);
@@ -438,7 +475,7 @@ async function initPostPage() {
   const commentStatusEl = document.getElementById("commentStatus");
 
   if (!Number.isInteger(postId) || postId <= 0) {
-    postStatusEl.textContent = "Invalid post id.";
+    postStatusEl.textContent = t("post.invalidId", null, "Invalid post id.");
     commentFormEl.querySelector("button[type='submit']").disabled = true;
     return;
   }
@@ -451,7 +488,7 @@ async function initPostPage() {
       fetchJson("/comments/" + encodeURIComponent(postId))
     ]);
   } catch (error) {
-    postStatusEl.textContent = error.message || "Failed to load post.";
+    postStatusEl.textContent = translateErrorMessage(error, "post.loadError", "Failed to load post.");
     commentFormEl.querySelector("button[type='submit']").disabled = true;
     return;
   }
@@ -459,11 +496,17 @@ async function initPostPage() {
   renderPost(postViewEl, post);
   renderComments(commentListEl, comments);
   postStatusEl.textContent = "";
-  document.title = "Pixel Notebook - " + (asText(post.title) || "Post #" + postId);
+  document.title = t(
+    "title.postWithName",
+    {
+      title: asText(post.title) || t("feed.untitled", null, "Post #" + postId)
+    },
+    BLOG_NAME + " - " + (asText(post.title) || "Post #" + postId)
+  );
 
   commentFormEl.addEventListener("submit", async (event) => {
     event.preventDefault();
-    commentStatusEl.textContent = "Sending...";
+    commentStatusEl.textContent = t("post.commentSending", null, "Sending...");
 
     const payload = {
       post_id: postId,
@@ -482,11 +525,15 @@ async function initPostPage() {
       });
 
       commentFormEl.reset();
-      commentStatusEl.textContent = "Comment posted.";
+      commentStatusEl.textContent = t("post.commentPosted", null, "Comment posted.");
       const updatedComments = await fetchJson("/comments/" + encodeURIComponent(postId));
       renderComments(commentListEl, updatedComments);
     } catch (error) {
-      commentStatusEl.textContent = error.message || "Failed to post comment.";
+      commentStatusEl.textContent = translateErrorMessage(
+        error,
+        "post.commentError",
+        "Failed to post comment."
+      );
     }
   });
 }
@@ -502,11 +549,11 @@ function renderPost(postViewEl, post) {
 
   const author = document.createElement("strong");
   author.className = "tweet-user";
-  author.textContent = "Pixel Notebook";
+  author.textContent = BLOG_NAME;
 
   const handle = document.createElement("span");
   handle.className = "tweet-handle";
-  handle.textContent = "@microblog";
+  handle.textContent = BLOG_HANDLE;
 
   const dot = document.createElement("span");
   dot.className = "tweet-sep";
@@ -524,7 +571,7 @@ function renderPost(postViewEl, post) {
 
   const title = document.createElement("h1");
   title.className = "tweet-title tweet-title-full";
-  title.textContent = asText(post.title) || "Untitled post";
+  title.textContent = asText(post.title) || t("feed.untitled", null, "Untitled post");
   card.appendChild(title);
   card.appendChild(createLikeControl(post.id, post.likes));
 
@@ -537,7 +584,7 @@ function renderPost(postViewEl, post) {
   if (blocks.length === 0) {
     const empty = document.createElement("p");
     empty.className = "tweet-text tweet-text-full";
-    empty.textContent = "This post has no readable blocks.";
+    empty.textContent = t("post.emptyBlocks", null, "This post has no readable blocks.");
     blocksWrap.appendChild(empty);
   } else {
     blocks.forEach((block) => {
@@ -600,7 +647,7 @@ function renderMediaBlock(block) {
     const image = document.createElement("img");
     image.className = "tweet-image";
     image.src = src;
-    image.alt = asText(block.alt) || asText(block.name) || "Post media";
+    image.alt = asText(block.alt) || asText(block.name) || t("common.postMedia", null, "Post media");
     attachPlaceholderFallback(image);
     figure.appendChild(image);
 
@@ -635,14 +682,14 @@ function renderMediaBlock(block) {
     figure.appendChild(figcaption);
     return figure;
   } else if (block.mediaKind === "file") {
-    const fileName = asText(block.name) || deriveFileNameFromSrc(src);
+    const fileName = asText(block.name) || deriveFileNameFromSrc(src) || t("common.file", null, "file");
 
     const fileBlock = document.createElement("div");
     fileBlock.className = "post-file-block";
 
     const label = document.createElement("p");
     label.className = "post-file-label";
-    label.textContent = "Attached file";
+    label.textContent = t("post.fileAttached", null, "Attached file");
     fileBlock.appendChild(label);
 
     const link = document.createElement("a");
@@ -671,7 +718,11 @@ function renderComments(commentListEl, comments) {
   if (!Array.isArray(comments) || comments.length === 0) {
     const li = document.createElement("li");
     li.className = "comment-card";
-    li.textContent = "No comments yet. Be the first visitor to write one.";
+    li.textContent = t(
+      "post.noComments",
+      null,
+      "No comments yet. Be the first visitor to write one."
+    );
     commentListEl.appendChild(li);
     return;
   }
@@ -682,7 +733,7 @@ function renderComments(commentListEl, comments) {
 
     const meta = document.createElement("p");
     meta.className = "meta-line";
-    const safeName = escapeHtml(comment.name || "Anonymous");
+    const safeName = escapeHtml(comment.name || t("common.anonymous", null, "Anonymous"));
     const safeDate = escapeHtml(formatDate(comment.created_at));
     meta.innerHTML = safeName + " | " + safeDate;
 

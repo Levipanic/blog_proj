@@ -45,6 +45,27 @@
   let draftBlocks = [];
   let previewRenderQueued = false;
 
+  function t(key, params, fallback) {
+    if (window.i18n && typeof window.i18n.t === "function") {
+      return window.i18n.t(key, params);
+    }
+    return fallback || String(key || "");
+  }
+
+  function translateErrorMessage(error, fallbackKey, fallbackText) {
+    const rawMessage = error && error.message ? error.message : "";
+    if (window.i18n && typeof window.i18n.translateError === "function") {
+      const translated = window.i18n.translateError(rawMessage);
+      if (translated) {
+        return translated;
+      }
+    }
+    if (rawMessage) {
+      return rawMessage;
+    }
+    return t(fallbackKey, null, fallbackText);
+  }
+
   function asText(value) {
     return typeof value === "string" ? value.trim() : "";
   }
@@ -70,7 +91,9 @@
 
   function setHeaderAdminUi(isAuthenticated) {
     if (adminEntryLink) {
-      adminEntryLink.textContent = isAuthenticated ? "Admin Panel" : "Admin";
+      adminEntryLink.textContent = isAuthenticated
+        ? t("nav.adminPanel", null, "Admin Panel")
+        : t("nav.admin", null, "Admin");
     }
     if (adminLogoutButton) {
       adminLogoutButton.hidden = !isAuthenticated;
@@ -80,7 +103,11 @@
   function showLoginView(sessionMessage, isError) {
     adminLoginView.hidden = false;
     adminEditorView.hidden = true;
-    setStatus(adminSessionStatus, sessionMessage || "Log in to access admin tools.", Boolean(isError));
+    setStatus(
+      adminSessionStatus,
+      sessionMessage || t("admin.sessionNeedLogin", null, "Log in to access admin tools."),
+      Boolean(isError)
+    );
     setHeaderAdminUi(false);
   }
 
@@ -88,14 +115,18 @@
     adminLoginView.hidden = true;
     adminEditorView.hidden = false;
     setStatus(adminLoginStatus, "", false);
-    setStatus(adminSessionStatus, sessionMessage || "Admin session active.", false);
+    setStatus(
+      adminSessionStatus,
+      sessionMessage || t("admin.sessionActive", null, "Admin session active."),
+      false
+    );
     setHeaderAdminUi(true);
     schedulePostPreviewRender();
   }
 
   function deriveFileName(src) {
     const parts = String(src || "").split("/");
-    const filename = parts[parts.length - 1] || "file";
+    const filename = parts[parts.length - 1] || t("common.file", null, "file");
     try {
       return decodeURIComponent(filename);
     } catch (error) {
@@ -174,12 +205,12 @@
   }
 
   function humanBlockType(type) {
-    if (type === "paragraph") return "Paragraph";
-    if (type === "heading") return "Heading";
-    if (type === "quote") return "Quote";
-    if (type === "divider") return "Divider";
-    if (type === "media") return "Media";
-    return "Block";
+    if (type === "paragraph") return t("admin.blockTypeParagraph", null, "Paragraph");
+    if (type === "heading") return t("admin.blockTypeHeading", null, "Heading");
+    if (type === "quote") return t("admin.blockTypeQuote", null, "Quote");
+    if (type === "divider") return t("admin.blockTypeDivider", null, "Divider");
+    if (type === "media") return t("admin.blockTypeMedia", null, "Media");
+    return t("admin.blockTypeFallback", null, "Block");
   }
 
   function createPreviewMessage(message, className) {
@@ -323,7 +354,7 @@
       text.value = typeof block.text === "string" ? block.text : "";
       text.dataset.field = "text";
       text.addEventListener("input", () => updateBlockTextField(index, "text", text.value));
-      fields.appendChild(createBlockField("Text", text));
+      fields.appendChild(createBlockField(t("admin.fieldText", null, "Text"), text));
       return fields;
     }
 
@@ -342,14 +373,14 @@
         draftBlocks[index].level = asHeadingLevel(level.value);
         syncDraftOutputs();
       });
-      fields.appendChild(createBlockField("Heading level", level));
+      fields.appendChild(createBlockField(t("admin.fieldHeadingLevel", null, "Heading level"), level));
 
       const text = document.createElement("input");
       text.type = "text";
       text.value = typeof block.text === "string" ? block.text : "";
       text.dataset.field = "text";
       text.addEventListener("input", () => updateBlockTextField(index, "text", text.value));
-      fields.appendChild(createBlockField("Text", text));
+      fields.appendChild(createBlockField(t("admin.fieldText", null, "Text"), text));
       return fields;
     }
 
@@ -359,14 +390,14 @@
       text.value = typeof block.text === "string" ? block.text : "";
       text.dataset.field = "text";
       text.addEventListener("input", () => updateBlockTextField(index, "text", text.value));
-      fields.appendChild(createBlockField("Quote text", text));
+      fields.appendChild(createBlockField(t("admin.fieldQuoteText", null, "Quote text"), text));
       return fields;
     }
 
     if (block.type === "divider") {
       const info = document.createElement("p");
       info.className = "admin-block-hint";
-      info.textContent = "Divider has no extra fields.";
+      info.textContent = t("admin.dividerNoFields", null, "Divider has no extra fields.");
       fields.appendChild(info);
       return fields;
     }
@@ -386,7 +417,7 @@
         draftBlocks[index].mediaKind = mediaKind.value;
         syncDraftOutputs();
       });
-      fields.appendChild(createBlockField("Media kind", mediaKind));
+      fields.appendChild(createBlockField(t("admin.fieldMediaKind", null, "Media kind"), mediaKind));
 
       const src = document.createElement("input");
       src.type = "text";
@@ -394,34 +425,34 @@
       src.value = typeof block.src === "string" ? block.src : "";
       src.dataset.field = "src";
       src.addEventListener("input", () => updateBlockTextField(index, "src", src.value));
-      fields.appendChild(createBlockField("Source URL", src));
+      fields.appendChild(createBlockField(t("admin.fieldSource", null, "Source URL"), src));
 
       const name = document.createElement("input");
       name.type = "text";
       name.value = typeof block.name === "string" ? block.name : "";
       name.dataset.field = "name";
       name.addEventListener("input", () => updateBlockTextField(index, "name", name.value));
-      fields.appendChild(createBlockField("Name", name));
+      fields.appendChild(createBlockField(t("admin.fieldName", null, "Name"), name));
 
       const alt = document.createElement("input");
       alt.type = "text";
       alt.value = typeof block.alt === "string" ? block.alt : "";
       alt.dataset.field = "alt";
       alt.addEventListener("input", () => updateBlockTextField(index, "alt", alt.value));
-      fields.appendChild(createBlockField("Alt text", alt));
+      fields.appendChild(createBlockField(t("admin.fieldAlt", null, "Alt text"), alt));
 
       const caption = document.createElement("input");
       caption.type = "text";
       caption.value = typeof block.caption === "string" ? block.caption : "";
       caption.dataset.field = "caption";
       caption.addEventListener("input", () => updateBlockTextField(index, "caption", caption.value));
-      fields.appendChild(createBlockField("Caption", caption));
+      fields.appendChild(createBlockField(t("admin.fieldCaption", null, "Caption"), caption));
       return fields;
     }
 
     const unsupported = document.createElement("p");
     unsupported.className = "admin-block-hint";
-    unsupported.textContent = "Unsupported block type.";
+    unsupported.textContent = t("admin.unsupportedBlock", null, "Unsupported block type.");
     fields.appendChild(unsupported);
     return fields;
   }
@@ -442,7 +473,7 @@
 
       const indexLabel = document.createElement("p");
       indexLabel.className = "admin-block-index";
-      indexLabel.textContent = "Block " + String(index + 1);
+      indexLabel.textContent = t("admin.block", { index: index + 1 }, "Block " + String(index + 1));
       titleWrap.appendChild(indexLabel);
 
       const typeLabel = document.createElement("p");
@@ -455,17 +486,21 @@
       const controls = document.createElement("div");
       controls.className = "admin-block-controls";
       controls.appendChild(
-        createBlockControlButton("Move Up", index === 0, () => {
+        createBlockControlButton(t("admin.moveUp", null, "Move Up"), index === 0, () => {
           moveBlock(index, -1);
         })
       );
       controls.appendChild(
-        createBlockControlButton("Move Down", index === draftBlocks.length - 1, () => {
+        createBlockControlButton(
+          t("admin.moveDown", null, "Move Down"),
+          index === draftBlocks.length - 1,
+          () => {
           moveBlock(index, 1);
-        })
+          }
+        )
       );
       controls.appendChild(
-        createBlockControlButton("Delete", false, () => {
+        createBlockControlButton(t("admin.delete", null, "Delete"), false, () => {
           deleteBlock(index);
         })
       );
@@ -484,11 +519,13 @@
       return;
     }
 
-    postPreviewTitle.textContent = asText(postTitleInput.value) || "Untitled post";
+    postPreviewTitle.textContent = asText(postTitleInput.value) || t("admin.previewUntitled", null, "Untitled post");
     postPreviewBlocks.textContent = "";
 
     if (draftBlocks.length === 0) {
-      postPreviewBlocks.appendChild(createPreviewMessage("Add blocks to preview post content."));
+      postPreviewBlocks.appendChild(
+        createPreviewMessage(t("admin.previewNeedBlocks", null, "Add blocks to preview post content."))
+      );
       return;
     }
 
@@ -497,7 +534,10 @@
       typeof window.renderPostBlock !== "function"
     ) {
       postPreviewBlocks.appendChild(
-        createPreviewMessage("Preview renderer unavailable.", "admin-preview-invalid")
+        createPreviewMessage(
+          t("admin.previewUnavailable", null, "Preview renderer unavailable."),
+          "admin-preview-invalid"
+        )
       );
       return;
     }
@@ -509,7 +549,11 @@
       if (!normalizedBlock) {
         postPreviewBlocks.appendChild(
           createPreviewMessage(
-            "Block " + (index + 1) + " is incomplete and not shown yet.",
+            t(
+              "admin.previewIncomplete",
+              { index: index + 1 },
+              "Block " + (index + 1) + " is incomplete and not shown yet."
+            ),
             "admin-preview-invalid"
           )
         );
@@ -520,7 +564,11 @@
       if (!blockElement) {
         postPreviewBlocks.appendChild(
           createPreviewMessage(
-            "Block " + (index + 1) + " cannot be previewed yet.",
+            t(
+              "admin.previewCannot",
+              { index: index + 1 },
+              "Block " + (index + 1) + " cannot be previewed yet."
+            ),
             "admin-preview-invalid"
           )
         );
@@ -532,7 +580,9 @@
     });
 
     if (renderedCount === 0 && postPreviewBlocks.children.length === 0) {
-      postPreviewBlocks.appendChild(createPreviewMessage("No readable blocks yet."));
+      postPreviewBlocks.appendChild(
+        createPreviewMessage(t("admin.previewNoReadable", null, "No readable blocks yet."))
+      );
     }
   }
 
@@ -548,7 +598,7 @@
     }
 
     if (!response.ok) {
-      const message = data && data.error ? data.error : "Request failed.";
+      const message = data && data.error ? data.error : t("common.requestFailed", null, "Request failed.");
       const details =
         data && Array.isArray(data.details) && data.details.length
           ? " " + data.details.join(" ")
@@ -566,12 +616,15 @@
     try {
       const data = await requestJson("/admin/session");
       if (data && data.authenticated) {
-        showEditorView("Logged in. You can upload files and publish posts.");
+        showEditorView(t("admin.loggedInMessage", null, "Logged in. You can upload files and publish posts."));
       } else {
-        showLoginView("Log in with ADMIN_SECRET to access admin tools.", false);
+        showLoginView(
+          t("admin.loginPrompt", null, "Log in with ADMIN_SECRET to access admin tools."),
+          false
+        );
       }
     } catch (error) {
-      showLoginView("Could not check admin session. Try again.", true);
+      showLoginView(t("admin.sessionCheckFailed", null, "Could not check admin session. Try again."), true);
     }
   }
 
@@ -579,7 +632,7 @@
     setHeaderAdminUi(false);
     adminEditorView.hidden = true;
     adminLoginView.hidden = false;
-    setStatus(adminSessionStatus, message || "Please log in as admin.", true);
+    setStatus(adminSessionStatus, message || t("admin.forceLogin", null, "Please log in as admin."), true);
     setStatus(adminLoginStatus, "", false);
     if (adminSecretInput) {
       adminSecretInput.focus();
@@ -591,11 +644,11 @@
     const secret = asText(adminSecretInput.value);
 
     if (!secret) {
-      setStatus(adminLoginStatus, "Admin secret is required.", true);
+      setStatus(adminLoginStatus, t("admin.secretRequired", null, "Admin secret is required."), true);
       return;
     }
 
-    setStatus(adminLoginStatus, "Logging in...", false);
+    setStatus(adminLoginStatus, t("admin.loggingIn", null, "Logging in..."), false);
 
     try {
       await requestJson("/admin/login", {
@@ -608,10 +661,10 @@
 
       adminLoginForm.reset();
       setStatus(adminLoginStatus, "", false);
-      showEditorView("Logged in. You can upload files and publish posts.");
+      showEditorView(t("admin.loggedInMessage", null, "Logged in. You can upload files and publish posts."));
     } catch (error) {
-      setStatus(adminLoginStatus, error.message || "Login failed.", true);
-      showLoginView("Admin login required.", true);
+      setStatus(adminLoginStatus, translateErrorMessage(error, "admin.loginFailed", "Login failed."), true);
+      showLoginView(t("admin.loginRequired", null, "Admin login required."), true);
     }
   });
 
@@ -620,9 +673,9 @@
       adminLogoutButton.disabled = true;
       try {
         await requestJson("/admin/logout", { method: "POST" });
-        showLoginView("Logged out.", false);
+        showLoginView(t("admin.loggedOut", null, "Logged out."), false);
       } catch (error) {
-        setStatus(adminSessionStatus, error.message || "Logout failed.", true);
+        setStatus(adminSessionStatus, translateErrorMessage(error, "admin.logoutFailed", "Logout failed."), true);
       } finally {
         adminLogoutButton.disabled = false;
       }
@@ -631,12 +684,12 @@
 
   uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setStatus(uploadStatus, "Uploading...", false);
+    setStatus(uploadStatus, t("admin.uploading", null, "Uploading..."), false);
     setResult(uploadResult, null);
 
     const file = uploadFileInput.files && uploadFileInput.files[0];
     if (!file) {
-      setStatus(uploadStatus, "Choose a file first.", true);
+      setStatus(uploadStatus, t("admin.chooseFile", null, "Choose a file first."), true);
       return;
     }
 
@@ -651,20 +704,20 @@
 
       lastUpload = data;
       setResult(uploadResult, data);
-      setStatus(uploadStatus, "Upload successful.", false);
+      setStatus(uploadStatus, t("admin.uploadSuccess", null, "Upload successful."), false);
       uploadForm.reset();
     } catch (error) {
       if (error && error.status === 401) {
-        await forceLogoutUi("Session expired. Log in again to continue.");
+        await forceLogoutUi(t("admin.sessionExpired", null, "Session expired. Log in again to continue."));
         return;
       }
-      setStatus(uploadStatus, error.message || "Upload failed.", true);
+      setStatus(uploadStatus, translateErrorMessage(error, "admin.uploadFailed", "Upload failed."), true);
     }
   });
 
   insertMediaBlockButton.addEventListener("click", () => {
     if (!lastUpload || !lastUpload.url || !lastUpload.mediaKind) {
-      setStatus(uploadStatus, "Upload a file first.", true);
+      setStatus(uploadStatus, t("admin.uploadFirst", null, "Upload a file first."), true);
       return;
     }
 
@@ -678,7 +731,11 @@
       "caption"
     );
 
-    setStatus(uploadStatus, "Added new media block from latest upload.", false);
+    setStatus(
+      uploadStatus,
+      t("admin.mediaAdded", null, "Added new media block from latest upload."),
+      false
+    );
   });
 
   addBlockButtons.forEach((button) => {
@@ -699,7 +756,7 @@
   clearDraftButton.addEventListener("click", () => {
     draftBlocks = [];
     postTitleInput.value = "";
-    setStatus(postStatus, "Draft cleared.", false);
+    setStatus(postStatus, t("admin.draftCleared", null, "Draft cleared."), false);
     setResult(postResult, null);
     renderBlockEditor();
     syncDraftOutputs();
@@ -707,23 +764,31 @@
 
   postForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setStatus(postStatus, "Creating post...", false);
+    setStatus(postStatus, t("admin.creatingPost", null, "Creating post..."), false);
     setResult(postResult, null);
 
     const title = asText(postTitleInput.value);
 
     if (!title) {
-      setStatus(postStatus, "Post title is required.", true);
+      setStatus(postStatus, t("admin.postTitleRequired", null, "Post title is required."), true);
       return;
     }
 
     if (draftBlocks.length === 0) {
-      setStatus(postStatus, "Add at least one block before publishing.", true);
+      setStatus(postStatus, t("admin.needBlock", null, "Add at least one block before publishing."), true);
       return;
     }
 
     if (typeof window.normalizeClientBlock !== "function") {
-      setStatus(postStatus, "Block validator unavailable. Reload the page and try again.", true);
+      setStatus(
+        postStatus,
+        t(
+          "admin.validatorMissing",
+          null,
+          "Block validator unavailable. Reload the page and try again."
+        ),
+        true
+      );
       return;
     }
 
@@ -733,7 +798,11 @@
       if (!normalized) {
         setStatus(
           postStatus,
-          "Block " + (index + 1) + " is incomplete. Fill required fields before publishing.",
+          t(
+            "admin.blockIncomplete",
+            { index: index + 1 },
+            "Block " + (index + 1) + " is incomplete. Fill required fields before publishing."
+          ),
           true
         );
         return;
@@ -754,13 +823,13 @@
       });
 
       setResult(postResult, data);
-      setStatus(postStatus, "Post created successfully.", false);
+      setStatus(postStatus, t("admin.postCreated", null, "Post created successfully."), false);
     } catch (error) {
       if (error && error.status === 401) {
-        await forceLogoutUi("Session expired. Log in again to continue.");
+        await forceLogoutUi(t("admin.sessionExpired", null, "Session expired. Log in again to continue."));
         return;
       }
-      setStatus(postStatus, error.message || "Post creation failed.", true);
+      setStatus(postStatus, translateErrorMessage(error, "admin.postCreateFailed", "Post creation failed."), true);
     }
   });
 

@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pixel Notebook - Post</title>
+    <title data-i18n="title.post">StereoDamage - Пост</title>
+    <script src="/i18n.js" defer></script>
     <script src="/theme.js" defer></script>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
@@ -11,45 +12,56 @@
   <body data-page="post">
     <header class="topbar">
       <div class="topbar-inner">
-        <p class="brand-mark">Pixel Notebook</p>
+        <p class="brand-mark" data-i18n="brand.name">StereoDamage</p>
         <div class="topbar-actions">
-          <nav aria-label="Main">
-            <a href="/" class="top-link">Home</a>
-            <a href="#" class="top-link active">Post</a>
-            <a href="/admin" class="top-link" id="adminEntryLink">Admin</a>
+          <nav aria-label="Основная навигация" data-i18n-aria-label="nav.mainAria">
+            <a href="/" class="top-link" data-i18n="nav.home">Главная</a>
+            <a href="#" class="top-link active" data-i18n="nav.post">Пост</a>
+            <a href="/admin" class="top-link" id="adminEntryLink" data-i18n="nav.admin">Админ</a>
           </nav>
-          <button id="adminLogoutButton" class="top-action-button" type="button" hidden>Logout</button>
-          <button id="themeToggle" class="theme-toggle" type="button">Theme: Light</button>
+          <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
+            <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
+            <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
+          </div>
+          <button id="adminLogoutButton" class="top-action-button" type="button" hidden data-i18n="nav.logout">Выйти</button>
+          <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
         </div>
       </div>
     </header>
 
     <main class="page-shell">
       <article class="panel post-article">
-        <p class="back-row"><a href="/" class="inline-link"><- Back to feed</a></p>
-        <p id="postStatus" class="status-text">Loading post...</p>
+        <p class="back-row"><a href="/" class="inline-link" data-i18n="post.back"><- Назад к ленте</a></p>
+        <p id="postStatus" class="status-text" data-i18n="post.loading">Загрузка поста...</p>
         <section id="postView"></section>
       </article>
 
       <section class="panel comments-panel">
-        <h2>Comments</h2>
+        <h2 data-i18n="post.comments">Комментарии</h2>
         <ul id="commentList" class="comment-list"></ul>
 
         <form id="commentForm" class="comment-form">
-          <label for="nameInput">Name (optional)</label>
-          <input id="nameInput" name="name" type="text" placeholder="Anonymous visitor" />
+          <label for="nameInput" data-i18n="post.nameLabel">Имя (необязательно)</label>
+          <input
+            id="nameInput"
+            name="name"
+            type="text"
+            placeholder="Анонимный посетитель"
+            data-i18n-placeholder="post.namePlaceholder"
+          />
 
-          <label for="contentInput">Comment</label>
+          <label for="contentInput" data-i18n="post.commentLabel">Комментарий</label>
           <textarea
             id="contentInput"
             name="content"
             rows="4"
-            placeholder="Leave a note..."
+            placeholder="Оставьте сообщение..."
+            data-i18n-placeholder="post.commentPlaceholder"
             required
           ></textarea>
 
           <div class="honeypot-wrap" aria-hidden="true">
-            <label for="websiteInput">Website</label>
+            <label for="websiteInput" data-i18n="post.websiteLabel">Сайт</label>
             <input
               id="websiteInput"
               name="website"
@@ -60,7 +72,7 @@
             />
           </div>
 
-          <button type="submit">Send Comment</button>
+          <button type="submit" data-i18n="post.send">Отправить комментарий</button>
           <p id="commentStatus" class="status-text"></p>
         </form>
       </section>

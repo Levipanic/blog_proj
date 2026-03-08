@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pixel Notebook - Admin</title>
+    <title data-i18n="title.admin">StereoDamage - Админка</title>
+    <script src="/i18n.js" defer></script>
     <script src="/theme.js" defer></script>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
@@ -12,14 +13,18 @@
   <body data-page="admin">
     <header class="topbar">
       <div class="topbar-inner">
-        <p class="brand-mark">Pixel Notebook</p>
+        <p class="brand-mark" data-i18n="brand.name">StereoDamage</p>
         <div class="topbar-actions">
-          <nav aria-label="Main">
-            <a href="/" class="top-link">Home</a>
-            <a href="/admin" class="top-link active" id="adminEntryLink">Admin</a>
+          <nav aria-label="Основная навигация" data-i18n-aria-label="nav.mainAria">
+            <a href="/" class="top-link" data-i18n="nav.home">Главная</a>
+            <a href="/admin" class="top-link active" id="adminEntryLink" data-i18n="nav.admin">Админ</a>
           </nav>
-          <button id="adminLogoutButton" class="top-action-button" type="button" hidden>Logout</button>
-          <button id="themeToggle" class="theme-toggle" type="button">Theme: Light</button>
+          <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
+            <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
+            <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
+          </div>
+          <button id="adminLogoutButton" class="top-action-button" type="button" hidden data-i18n="nav.logout">Выйти</button>
+          <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
         </div>
       </div>
     </header>
@@ -27,82 +32,129 @@
     <main class="page-shell">
       <section class="panel admin-panel">
         <header class="timeline-head">
-          <h1 class="site-title">Admin</h1>
-          <p class="site-subtitle">Login once, then upload files and create posts.</p>
+          <h1 class="site-title" data-i18n="admin.title">Админка</h1>
+          <p class="site-subtitle" data-i18n="admin.subtitle">
+            Войдите один раз, затем загружайте файлы и создавайте посты.
+          </p>
         </header>
 
         <p id="adminSessionStatus" class="status-text"></p>
 
         <section id="adminLoginView" class="admin-auth">
-          <h2 class="admin-section-title">Admin Login</h2>
+          <h2 class="admin-section-title" data-i18n="admin.loginTitle">Вход в админку</h2>
           <form id="adminLoginForm" class="admin-form admin-auth-form">
-            <label for="adminSecretInput">Admin secret</label>
+            <label for="adminSecretInput" data-i18n="admin.secretLabel">Админ-секрет</label>
             <input
               id="adminSecretInput"
               name="secret"
               type="password"
               autocomplete="current-password"
-              placeholder="Enter ADMIN_SECRET"
+              placeholder="Введите ADMIN_SECRET"
+              data-i18n-placeholder="admin.secretPlaceholder"
               required
             />
-            <button type="submit" class="admin-button">Login</button>
+            <button type="submit" class="admin-button" data-i18n="admin.loginButton">Войти</button>
           </form>
           <p id="adminLoginStatus" class="status-text"></p>
         </section>
 
         <section id="adminEditorView" hidden>
           <div class="admin-section admin-section-first">
-            <h2 class="admin-section-title">1) Upload File</h2>
+            <h2 class="admin-section-title" data-i18n="admin.sectionUpload">1) Загрузка файла</h2>
             <form id="uploadForm" class="admin-form">
-              <label for="uploadFileInput">File</label>
+              <label for="uploadFileInput" data-i18n="admin.fileLabel">Файл</label>
               <input id="uploadFileInput" name="file" type="file" required />
-              <button type="submit" class="admin-button">Upload</button>
+              <button type="submit" class="admin-button" data-i18n="admin.uploadButton">Загрузить</button>
             </form>
             <p id="uploadStatus" class="status-text"></p>
             <pre id="uploadResult" class="admin-result" aria-live="polite"></pre>
-            <button id="insertMediaBlockButton" type="button" class="admin-button">
-              Insert into new media block
+            <button id="insertMediaBlockButton" type="button" class="admin-button" data-i18n="admin.insertMedia">
+              Добавить как новый медиа-блок
             </button>
           </div>
 
           <div class="admin-section">
-            <h2 class="admin-section-title">2) Create Post</h2>
+            <h2 class="admin-section-title" data-i18n="admin.sectionCreate">2) Создать пост</h2>
             <div class="admin-post-workbench">
               <div class="admin-post-editor">
                 <form id="postForm" class="admin-form">
-                  <label for="postTitleInput">Post title</label>
-                  <input id="postTitleInput" type="text" maxlength="160" placeholder="Post title" required />
+                  <label for="postTitleInput" data-i18n="admin.postTitleLabel">Заголовок поста</label>
+                  <input
+                    id="postTitleInput"
+                    type="text"
+                    maxlength="160"
+                    placeholder="Заголовок поста"
+                    data-i18n-placeholder="admin.postTitlePlaceholder"
+                    required
+                  />
 
-                  <div class="admin-block-toolbar" role="group" aria-label="Add block">
-                    <button type="button" class="admin-button admin-button-secondary" data-add-block="paragraph">
-                      Add paragraph
+                  <div
+                    class="admin-block-toolbar"
+                    role="group"
+                    aria-label="Добавить блок"
+                    data-i18n-aria-label="admin.addBlockAria"
+                  >
+                    <button
+                      type="button"
+                      class="admin-button admin-button-secondary"
+                      data-add-block="paragraph"
+                      data-i18n="admin.addParagraph"
+                    >
+                      Добавить абзац
                     </button>
-                    <button type="button" class="admin-button admin-button-secondary" data-add-block="heading">
-                      Add heading
+                    <button
+                      type="button"
+                      class="admin-button admin-button-secondary"
+                      data-add-block="heading"
+                      data-i18n="admin.addHeading"
+                    >
+                      Добавить заголовок
                     </button>
-                    <button type="button" class="admin-button admin-button-secondary" data-add-block="quote">
-                      Add quote
+                    <button
+                      type="button"
+                      class="admin-button admin-button-secondary"
+                      data-add-block="quote"
+                      data-i18n="admin.addQuote"
+                    >
+                      Добавить цитату
                     </button>
-                    <button type="button" class="admin-button admin-button-secondary" data-add-block="divider">
-                      Add divider
+                    <button
+                      type="button"
+                      class="admin-button admin-button-secondary"
+                      data-add-block="divider"
+                      data-i18n="admin.addDivider"
+                    >
+                      Добавить разделитель
                     </button>
-                    <button type="button" class="admin-button admin-button-secondary" data-add-block="media">
-                      Add media
+                    <button
+                      type="button"
+                      class="admin-button admin-button-secondary"
+                      data-add-block="media"
+                      data-i18n="admin.addMedia"
+                    >
+                      Добавить медиа
                     </button>
                   </div>
 
                   <section id="blockEditorList" class="admin-block-list" aria-live="polite"></section>
-                  <p id="blockEditorEmpty" class="status-text">No blocks yet. Add one to start composing.</p>
+                  <p id="blockEditorEmpty" class="status-text" data-i18n="admin.emptyBlocks">
+                    Блоков пока нет. Добавьте первый.
+                  </p>
 
                   <details class="admin-raw-json">
-                    <summary class="admin-section-title">Raw Blocks JSON (debug)</summary>
+                    <summary class="admin-section-title" data-i18n="admin.rawJson">Сырый JSON блоков (отладка)</summary>
                     <textarea id="blocksInput" rows="12" readonly></textarea>
                   </details>
 
                   <div class="admin-post-actions">
-                    <button type="submit" class="admin-button">Create Post</button>
-                    <button id="clearDraftButton" type="button" class="admin-button admin-button-secondary">
-                      Clear Draft
+                    <button type="submit" class="admin-button" data-i18n="admin.createPost">Создать пост</button>
+                    <button
+                      id="clearDraftButton"
+                      type="button"
+                      class="admin-button admin-button-secondary"
+                      data-i18n="admin.clearDraft"
+                    >
+                      Очистить черновик
                     </button>
                   </div>
                 </form>
@@ -111,12 +163,14 @@
               </div>
 
               <section class="admin-preview" aria-labelledby="postPreviewHeading">
-                <h3 id="postPreviewHeading" class="admin-section-title">Live Preview</h3>
+                <h3 id="postPreviewHeading" class="admin-section-title" data-i18n="admin.preview">Предпросмотр</h3>
                 <article class="tweet-card tweet-card-full admin-preview-card">
-                  <h1 id="postPreviewTitle" class="tweet-title tweet-title-full">Untitled post</h1>
+                  <h1 id="postPreviewTitle" class="tweet-title tweet-title-full" data-i18n="admin.previewUntitled">
+                    Пост без названия
+                  </h1>
                   <div id="postPreviewBlocks" class="post-blocks" aria-live="polite">
-                    <p class="admin-preview-placeholder">
-                      Add a title and blocks to preview the post.
+                    <p class="admin-preview-placeholder" data-i18n="admin.previewPlaceholder">
+                      Добавьте заголовок и блоки для предпросмотра.
                     </p>
                   </div>
                 </article>
@@ -125,18 +179,18 @@
           </div>
 
           <details class="admin-section">
-            <summary class="admin-section-title">Example Blocks JSON</summary>
+            <summary class="admin-section-title" data-i18n="admin.exampleJson">Пример JSON блоков</summary>
             <pre class="admin-result">[
-  { "type": "heading", "level": 2, "text": "Morning Notes" },
-  { "type": "paragraph", "text": "First paragraph of the post." },
-  { "type": "quote", "text": "Short quote line." },
+  { "type": "heading", "level": 2, "text": "Утренние заметки" },
+  { "type": "paragraph", "text": "Первый абзац поста." },
+  { "type": "quote", "text": "Короткая строка цитаты." },
   { "type": "divider" },
   {
     "type": "media",
     "mediaKind": "image",
     "src": "/uploads/example.png",
-    "alt": "Optional alt",
-    "caption": "Optional caption"
+    "alt": "Необязательный alt",
+    "caption": "Необязательная подпись"
   },
   {
     "type": "media",

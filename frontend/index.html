@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pixel Notebook - Feed</title>
+    <title data-i18n="title.feed">StereoDamage - Лента</title>
+    <script src="/i18n.js" defer></script>
     <script src="/theme.js" defer></script>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
@@ -11,14 +12,18 @@
   <body data-page="feed">
     <header class="topbar">
       <div class="topbar-inner">
-        <p class="brand-mark">Pixel Notebook</p>
+        <p class="brand-mark" data-i18n="brand.name">StereoDamage</p>
         <div class="topbar-actions">
-          <nav aria-label="Main">
-            <a href="/" class="top-link active">Home</a>
-            <a href="/admin" class="top-link" id="adminEntryLink">Admin</a>
+          <nav aria-label="Основная навигация" data-i18n-aria-label="nav.mainAria">
+            <a href="/" class="top-link active" data-i18n="nav.home">Главная</a>
+            <a href="/admin" class="top-link" id="adminEntryLink" data-i18n="nav.admin">Админ</a>
           </nav>
-          <button id="adminLogoutButton" class="top-action-button" type="button" hidden>Logout</button>
-          <button id="themeToggle" class="theme-toggle" type="button">Theme: Light</button>
+          <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
+            <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
+            <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
+          </div>
+          <button id="adminLogoutButton" class="top-action-button" type="button" hidden data-i18n="nav.logout">Выйти</button>
+          <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
         </div>
       </div>
     </header>
@@ -26,10 +31,10 @@
     <main class="page-shell">
       <section class="panel timeline-panel">
         <header class="timeline-head">
-          <h1 class="site-title">Posts</h1>
-          <p class="site-subtitle">Reverse chronological timeline</p>
+          <h1 class="site-title" data-i18n="feed.title">Посты</h1>
+          <p class="site-subtitle" data-i18n="feed.subtitle">Обратная хронология</p>
         </header>
-        <p id="feedStatus" class="status-text">Loading timeline...</p>
+        <p id="feedStatus" class="status-text" data-i18n="feed.loading">Загрузка ленты...</p>
         <ul id="feedList" class="feed-list"></ul>
       </section>
     </main>
