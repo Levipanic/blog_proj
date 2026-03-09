@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Lexend:wght@400;600&display=swap");
-
 :root {
   color-scheme: light;
   --bg-top: #ffdab3;
@@ -121,7 +119,7 @@ body {
   margin: 0;
   color: var(--text);
   line-height: 1.45;
-  font-family: "Lexend", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: "LINE Seed JP", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-weight: 400;
   background:
     radial-gradient(1000px 300px at 50% -130px, var(--bg-glow) 0%, transparent 72%),
@@ -134,7 +132,7 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: "Lexend", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: "LINE Seed JP", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-weight: 600;
 }
 
@@ -650,7 +648,6 @@ select {
 }
 
 .comment-form label,
-.admin-field label,
 .admin-form label {
   font-size: 0.9rem;
   font-weight: 700;
@@ -714,11 +711,6 @@ select {
   width: 1px;
   height: 1px;
   overflow: hidden;
-}
-
-.admin-field {
-  display: grid;
-  gap: 0.45rem;
 }
 
 .admin-auth {
