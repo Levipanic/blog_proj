@@ -491,12 +491,20 @@ select {
   padding-bottom: 0.38rem;
 }
 
+.feed-list .tweet-head-meta {
+  align-items: center;
+}
+
 .feed-list .tweet-title {
-  margin: 0.08rem 0 0.12rem;
+  margin: 0.1rem 0 0.4rem;
+  font-size: clamp(1.12rem, 4.9vw, 1.36rem);
 }
 
 .feed-list .tweet-text {
   margin: 0;
+  color: var(--text);
+  font-size: 0.99rem;
+  line-height: 1.62;
 }
 
 .feed-list .like-row {
@@ -505,6 +513,13 @@ select {
   border: 1px solid var(--like-border);
   border-radius: var(--control-radius);
   background: var(--like-bg);
+}
+
+.feed-list .like-row-inline {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .feed-list .like-status {
@@ -543,6 +558,16 @@ select {
   margin: 0.2rem 0 0.6rem;
 }
 
+.like-row-inline {
+  margin: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow: visible;
+}
+
 .like-button {
   min-height: 2.45rem;
   padding: 0.45rem 0.9rem;
@@ -564,6 +589,27 @@ select {
   cursor: wait;
 }
 
+.like-button-inline {
+  min-height: 1.72rem;
+  padding: 0.16rem 0.5rem 0.16rem 0.42rem;
+  font-size: 0.84rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.like-emoji {
+  line-height: 1;
+  font-size: 0.86rem;
+}
+
+.like-inline-count {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .like-count {
   margin: 0;
   color: var(--like-text);
@@ -577,6 +623,35 @@ select {
   min-height: 1.1rem;
   color: var(--text-muted);
   font-size: 0.86rem;
+}
+
+.like-status-inline {
+  position: absolute;
+  left: calc(100% + 0.38rem);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  flex-basis: auto;
+  min-height: 0;
+  min-width: 10.5rem;
+  width: max-content;
+  margin: 0;
+  padding: 0.24rem 0.4rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.74rem;
+  line-height: 1.2;
+  max-width: min(20rem, calc(100vw - 2.5rem));
+  box-shadow: 0 8px 16px -24px var(--shadow-soft);
+  display: none;
+  overflow-wrap: break-word;
+  word-break: normal;
+  white-space: normal;
+}
+
+.like-status-inline:not(:empty) {
+  display: inline-flex;
 }
 
 .admin-inline-actions {
@@ -636,6 +711,12 @@ select {
 .tweet-thumb {
   max-height: 14rem;
   object-fit: cover;
+}
+
+.feed-list .tweet-thumb {
+  margin-top: 0.48rem;
+  margin-bottom: 0.76rem;
+  max-height: min(62vh, 20rem);
 }
 
 .tweet-image {
@@ -1061,11 +1142,63 @@ select {
   justify-self: end;
 }
 
+.feed-list .reply-preview {
+  margin-top: 0.34rem;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.44rem 0 0;
+  gap: 0.26rem;
+}
+
+.feed-list .reply-list {
+  gap: 0.24rem;
+}
+
+.feed-list .reply-empty {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.feed-list .reply-item {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.32;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.28rem;
+}
+
+.feed-list .reply-item + .reply-item {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 0.22rem;
+}
+
+.feed-list .reply-item .admin-delete-button {
+  min-height: 1.42rem;
+  padding: 0.12rem 0.38rem;
+  font-size: 0.66rem;
+  line-height: 1.05;
+  border-radius: 999px;
+  align-self: start;
+}
+
 .reply-preview > .inline-link {
   min-height: 2rem;
   padding: 0.06rem 0;
   font-size: 0.86rem;
   font-weight: 700;
+}
+
+.feed-list .reply-preview > .inline-link {
+  min-height: 1.38rem;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .inline-link {
@@ -1608,6 +1741,15 @@ select {
 
   .reply-item .admin-delete-button {
     justify-self: start;
+  }
+
+  .feed-list .reply-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.28rem;
+  }
+
+  .feed-list .reply-item .admin-delete-button {
+    justify-self: end;
   }
 
   .comment-head {

@@ -90,9 +90,13 @@ const lowTokenDiversityMinTokenCount = getPositiveInt(
   process.env.COMMENT_LOW_TOKEN_DIVERSITY_MIN_TOKEN_COUNT,
   24
 );
+const lowTokenDiversityContentMinLength = getPositiveInt(
+  process.env.COMMENT_LOW_TOKEN_DIVERSITY_CONTENT_MIN_LENGTH,
+  180
+);
 const lowTokenDiversityThreshold = Math.min(
   1,
-  getPositiveNumber(process.env.COMMENT_LOW_TOKEN_DIVERSITY_THRESHOLD, 0.2)
+  getPositiveNumber(process.env.COMMENT_LOW_TOKEN_DIVERSITY_THRESHOLD, 0.14)
 );
 const lowDiversityCheckMinLength = 120;
 const lowDiversityThreshold = 0.08;
@@ -472,12 +476,16 @@ function validateCommentContent(rawContent) {
     }
   }
 
-  if (tokens.length >= repetitiveDominanceMinTokenCount) {
+  const wordTokens = tokens.filter((token) => isWordLikeToken(token));
+  const dominanceTokens =
+    wordTokens.length >= repetitiveDominanceMinTokenCount ? wordTokens : tokens;
+
+  if (dominanceTokens.length >= repetitiveDominanceMinTokenCount) {
     const tokenCounts = new Map();
     let dominantToken = "";
     let dominantCount = 0;
 
-    tokens.forEach((token) => {
+    dominanceTokens.forEach((token) => {
       const nextCount = (tokenCounts.get(token) || 0) + 1;
       tokenCounts.set(token, nextCount);
       if (nextCount > dominantCount) {
@@ -486,7 +494,7 @@ function validateCommentContent(rawContent) {
       }
     });
 
-    if (dominantCount / tokens.length >= repetitiveDominanceThreshold) {
+    if (dominantCount / dominanceTokens.length >= repetitiveDominanceThreshold) {
       if (isEmojiOrSymbolToken(dominantToken)) {
         return { error: "Please reduce repeated symbols or emoji." };
       }
@@ -494,8 +502,11 @@ function validateCommentContent(rawContent) {
     }
   }
 
-  if (tokens.length >= lowTokenDiversityMinTokenCount) {
-    const tokenDiversityRatio = new Set(tokens).size / tokens.length;
+  if (
+    content.length >= lowTokenDiversityContentMinLength &&
+    wordTokens.length >= lowTokenDiversityMinTokenCount
+  ) {
+    const tokenDiversityRatio = new Set(wordTokens).size / wordTokens.length;
     if (tokenDiversityRatio < lowTokenDiversityThreshold) {
       return { error: "Comment is too repetitive." };
     }

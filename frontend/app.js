@@ -36,6 +36,9 @@ const AUDIO_SESSION_STORAGE_KEY = "stereodamage_audio_session_v1";
 const AUDIO_WAVEFORM_BAR_COUNT = 56;
 const MAX_COMMENT_LENGTH = 1000;
 const COMMENT_COLLAPSE_PREVIEW_LENGTH = 280;
+const FEED_COMMENT_PREVIEW_LIMIT_DESKTOP = 2;
+const FEED_COMMENT_PREVIEW_LIMIT_MOBILE = 1;
+const FEED_MOBILE_BREAKPOINT_QUERY = "(max-width: 640px)";
 const audioPlayback = createGlobalAudioPlayback();
 
 function t(key, params, fallback) {
@@ -1598,27 +1601,58 @@ function createCommentDeleteButton(commentId, onDeleted, onError) {
   });
 }
 
-function createLikeControl(postId, initialLikes) {
+function createLikeControl(postId, initialLikes, options) {
+  const renderOptions = options && typeof options === "object" ? options : {};
+  const inline = Boolean(renderOptions.inline);
   const wrap = document.createElement("div");
-  wrap.className = "like-row";
+  wrap.className = inline ? "like-row like-row-inline" : "like-row";
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "like-button";
-  button.textContent = t("feed.like", null, "Like");
-  button.setAttribute("aria-label", t("feed.likeAria", null, "Like this post"));
+  button.className = inline ? "like-button like-button-inline" : "like-button";
   wrap.appendChild(button);
 
-  const count = document.createElement("p");
-  count.className = "like-count";
   let likes = normalizeLikeCount(initialLikes);
-  count.textContent = formatLikeText(likes);
-  wrap.appendChild(count);
+  let count = null;
+  let inlineCount = null;
+
+  if (inline) {
+    const emoji = document.createElement("span");
+    emoji.className = "like-emoji";
+    emoji.textContent = "❤️";
+    emoji.setAttribute("aria-hidden", "true");
+    button.appendChild(emoji);
+
+    inlineCount = document.createElement("span");
+    inlineCount.className = "like-inline-count";
+    button.appendChild(inlineCount);
+  } else {
+    button.textContent = t("feed.like", null, "Like");
+    count = document.createElement("p");
+    count.className = "like-count";
+    wrap.appendChild(count);
+  }
 
   const status = document.createElement("p");
-  status.className = "like-status";
+  status.className = inline ? "like-status like-status-inline" : "like-status";
   status.setAttribute("aria-live", "polite");
   wrap.appendChild(status);
+
+  function applyLikeState() {
+    const likeText = formatLikeText(likes);
+    if (inline) {
+      inlineCount.textContent = String(likes);
+      button.setAttribute(
+        "aria-label",
+        t("feed.likeAria", null, "Like this post") + ". " + likeText
+      );
+    } else {
+      count.textContent = likeText;
+      button.setAttribute("aria-label", t("feed.likeAria", null, "Like this post"));
+    }
+  }
+
+  applyLikeState();
 
   button.addEventListener("click", async (event) => {
     event.preventDefault();
@@ -1630,7 +1664,7 @@ function createLikeControl(postId, initialLikes) {
         method: "POST"
       });
       likes = normalizeLikeCount(result && result.likes);
-      count.textContent = formatLikeText(likes);
+      applyLikeState();
       const successMessage = t("feed.likeSuccess", null, "Thanks! Like saved.");
       status.textContent = successMessage;
 
@@ -1660,14 +1694,29 @@ function createLikeControl(postId, initialLikes) {
 }
 
 async function loadCommentPreview(postId) {
+  const previewLimit = getFeedCommentPreviewLimit();
   try {
     const comments = await fetchJson(
-      "/comments/" + encodeURIComponent(postId) + "?limit=2&order=desc"
+      "/comments/" +
+        encodeURIComponent(postId) +
+        "?limit=" +
+        encodeURIComponent(previewLimit) +
+        "&order=desc"
     );
     return Array.isArray(comments) ? comments : [];
   } catch (error) {
     return [];
   }
+}
+
+function getFeedCommentPreviewLimit() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return FEED_COMMENT_PREVIEW_LIMIT_DESKTOP;
+  }
+
+  return window.matchMedia(FEED_MOBILE_BREAKPOINT_QUERY).matches
+    ? FEED_COMMENT_PREVIEW_LIMIT_MOBILE
+    : FEED_COMMENT_PREVIEW_LIMIT_DESKTOP;
 }
 
 function createFeedMediaBadge(labelText, detailText) {
@@ -1779,6 +1828,7 @@ async function initFeedPage() {
     posts.map(async (post) => [post.id, await loadCommentPreview(post.id)])
   );
   const commentPreviewByPostId = new Map(previewEntries);
+  const feedCommentPreviewLimit = getFeedCommentPreviewLimit();
 
   feedStatusEl.textContent = t("feed.summary", { count: posts.length }, posts.length + " post(s), newest first.");
   feedListEl.innerHTML = "";
@@ -1795,10 +1845,7 @@ async function initFeedPage() {
     header.className = "tweet-head";
     const headerMeta = document.createElement("div");
     headerMeta.className = "tweet-head-meta";
-
-    const author = document.createElement("strong");
-    author.className = "tweet-user";
-    author.textContent = BLOG_NAME;
+    const likeControl = createLikeControl(post.id, post.likes, { inline: true });
 
     const handle = document.createElement("span");
     handle.className = "tweet-handle";
@@ -1806,13 +1853,13 @@ async function initFeedPage() {
 
     const dot = document.createElement("span");
     dot.className = "tweet-sep";
-    dot.textContent = "·";
+    dot.textContent = "-";
 
     const date = document.createElement("span");
     date.className = "tweet-date";
     date.textContent = formatDate(post.created_at);
 
-    headerMeta.appendChild(author);
+    headerMeta.appendChild(likeControl);
     headerMeta.appendChild(handle);
     headerMeta.appendChild(dot);
     headerMeta.appendChild(date);
@@ -1840,8 +1887,6 @@ async function initFeedPage() {
     title.textContent = asText(post.title) || t("feed.untitled", null, "Untitled post");
     card.appendChild(title);
 
-    card.appendChild(createLikeControl(post.id, post.likes));
-
     const text = document.createElement("p");
     text.className = "tweet-text";
     text.textContent = previewText(post.preview_text, 240) || t("feed.noPreview", null, "No paragraph preview.");
@@ -1852,7 +1897,7 @@ async function initFeedPage() {
       card.appendChild(previewMedia);
     }
 
-    const comments = commentPreviewByPostId.get(post.id) || [];
+    const comments = (commentPreviewByPostId.get(post.id) || []).slice(0, feedCommentPreviewLimit);
     const previewWrap = document.createElement("div");
     previewWrap.className = "reply-preview";
 
