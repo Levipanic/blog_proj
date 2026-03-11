@@ -373,6 +373,28 @@ select {
   overflow-wrap: anywhere;
 }
 
+.tweet-user,
+.tweet-handle,
+.tweet-date,
+.tweet-title,
+.tweet-text,
+.post-heading,
+.post-quote,
+.post-caption,
+.post-file-link,
+.meta-line,
+.comment-body,
+.reply-item,
+.reply-item-text,
+.like-status,
+.audio-status-label,
+.comment-form-status,
+.comment-reply-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .feed-list,
 .comment-list,
 .reply-list {
@@ -383,7 +405,7 @@ select {
 
 .feed-list {
   display: grid;
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .feed-item {
@@ -391,10 +413,31 @@ select {
 }
 
 .feed-list .tweet-card {
-  padding: 0.85rem 0.72rem;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--panel-radius);
-  background: var(--surface);
+  position: relative;
+  display: grid;
+  gap: 0.58rem;
+  padding: 0.92rem 0.82rem 0.86rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--panel-radius) + 1px);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-alt) 100%);
+  box-shadow: 0 14px 28px -24px var(--shadow-soft);
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.feed-list .tweet-card::before {
+  content: "";
+  position: absolute;
+  top: 0.48rem;
+  left: 0.62rem;
+  right: 0.62rem;
+  height: 1px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+  opacity: 0.38;
+  pointer-events: none;
 }
 
 .tweet-card {
@@ -407,17 +450,65 @@ select {
   background: var(--surface-hover);
 }
 
+.feed-list .tweet-card:hover {
+  background: linear-gradient(180deg, var(--surface-hover) 0%, var(--surface) 100%);
+  border-color: var(--border-soft);
+  box-shadow: 0 18px 32px -24px var(--shadow-soft);
+  transform: translateY(-1px);
+}
+
 .tweet-card:focus-visible {
   outline: 2px solid var(--focus-ring-soft);
   outline-offset: -1px;
 }
 
 .tweet-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.3rem 0.45rem;
   min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.tweet-head-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.45rem;
+}
+
+.tweet-head-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.feed-list .tweet-head {
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 0.38rem;
+}
+
+.feed-list .tweet-title {
+  margin: 0.08rem 0 0.12rem;
+}
+
+.feed-list .tweet-text {
+  margin: 0;
+}
+
+.feed-list .like-row {
+  margin: 0;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid var(--like-border);
+  border-radius: var(--control-radius);
+  background: var(--like-bg);
+}
+
+.feed-list .like-status {
+  margin-top: 0.12rem;
 }
 
 .tweet-user {
@@ -504,6 +595,8 @@ select {
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.2;
+  white-space: nowrap;
+  flex: 0 0 auto;
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -523,6 +616,7 @@ select {
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tweet-text-full {
@@ -610,6 +704,7 @@ select {
   margin: 0;
   line-height: 1.3;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .post-heading-1 {
@@ -633,6 +728,7 @@ select {
   color: var(--quote-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .post-divider {
@@ -885,6 +981,7 @@ select {
   color: var(--text-muted);
   font-size: 0.88rem;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .post-file-block {
@@ -915,33 +1012,60 @@ select {
 }
 
 .reply-preview {
-  border-top: 1px dashed var(--border-soft);
-  padding-top: 0.62rem;
+  min-width: 0;
+  margin-top: 0.12rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--control-radius);
+  background: var(--surface-alt);
+  padding: 0.6rem 0.62rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.reply-list {
+  display: grid;
+  gap: 0.42rem;
 }
 
 .reply-empty {
-  margin: 0 0 0.45rem;
+  margin: 0;
   color: var(--text-muted);
   font-size: 0.91rem;
 }
 
 .reply-item {
-  margin: 0 0 0.45rem;
+  margin: 0;
+  padding: 0.34rem 0.44rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--control-radius);
+  background: var(--surface);
   color: var(--text-subtle);
   font-size: 0.92rem;
   line-height: 1.42;
   white-space: normal;
   overflow-wrap: anywhere;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  word-break: break-word;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 0.5rem;
 }
 
 .reply-item-text {
   min-width: 0;
-  flex: 1 1 auto;
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.reply-item .admin-delete-button {
+  justify-self: end;
+}
+
+.reply-preview > .inline-link {
+  min-height: 2rem;
+  padding: 0.06rem 0;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .inline-link {
@@ -963,25 +1087,27 @@ select {
 
 .comment-list {
   display: grid;
-  gap: 0.68rem;
+  gap: 0.82rem;
 }
 
 .comment-card {
   min-width: 0;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border);
   border-radius: var(--panel-radius);
   background: var(--surface-alt);
-  padding: 0.66rem 0.72rem;
+  padding: 0.74rem 0.78rem;
+  box-shadow: 0 10px 20px -24px var(--shadow-soft);
 }
 
 .comment-card-nested {
   background: var(--surface);
+  border-color: var(--border-soft);
 }
 
 .comment-thread-children {
   list-style: none;
-  margin: 0.58rem 0 0;
-  padding: 0 0 0 0.62rem;
+  margin: 0.66rem 0 0;
+  padding: 0 0 0 0.72rem;
   border-left: 2px solid var(--border-soft);
   display: grid;
   gap: 0.52rem;
@@ -995,21 +1121,26 @@ select {
 }
 
 .comment-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.6rem;
-  margin-bottom: 0.28rem;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.5rem;
+  margin-bottom: 0.34rem;
 }
 
 .comment-head .meta-line {
   margin-bottom: 0;
+  line-height: 1.38;
 }
 
 .comment-head-actions {
+  min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 0.45rem;
+  justify-self: end;
 }
 
 .comment-head-actions .admin-delete-button {
@@ -1024,9 +1155,11 @@ select {
   line-height: 1.52;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .comment-body-wrap {
+  min-width: 0;
   display: grid;
   gap: 0.38rem;
 }
@@ -1050,6 +1183,7 @@ select {
 }
 
 .comment-controls {
+  min-width: 0;
   margin-top: 0.44rem;
   display: flex;
   flex-wrap: wrap;
@@ -1075,6 +1209,7 @@ select {
 }
 
 .comment-reply-form {
+  min-width: 0;
   margin-top: 0.5rem;
   display: grid;
   gap: 0.46rem;
@@ -1101,6 +1236,8 @@ select {
   min-height: 4.4rem;
   resize: vertical;
   overflow: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .comment-reply-form button {
@@ -1185,6 +1322,8 @@ select {
 
 .comment-form textarea {
   min-height: 7rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .comment-form button,
@@ -1458,6 +1597,28 @@ select {
     justify-content: space-between;
   }
 
+  .feed-list .tweet-card {
+    padding: 0.82rem 0.72rem 0.78rem;
+  }
+
+  .reply-item {
+    grid-template-columns: 1fr;
+    gap: 0.36rem;
+  }
+
+  .reply-item .admin-delete-button {
+    justify-self: start;
+  }
+
+  .comment-head {
+    grid-template-columns: 1fr;
+    gap: 0.36rem;
+  }
+
+  .comment-head-actions {
+    justify-self: start;
+  }
+
   .comment-card {
     padding: 0.6rem;
   }
@@ -1489,6 +1650,14 @@ select {
 
   .tweet-card {
     padding: 0.95rem 0.1rem;
+  }
+
+  .feed-list {
+    gap: 1.08rem;
+  }
+
+  .feed-list .tweet-card {
+    padding: 1rem 0.95rem 0.95rem;
   }
 
   .post-audio-card {

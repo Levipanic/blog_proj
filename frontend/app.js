@@ -1793,6 +1793,8 @@ async function initFeedPage() {
 
     const header = document.createElement("div");
     header.className = "tweet-head";
+    const headerMeta = document.createElement("div");
+    headerMeta.className = "tweet-head-meta";
 
     const author = document.createElement("strong");
     author.className = "tweet-user";
@@ -1810,12 +1812,15 @@ async function initFeedPage() {
     date.className = "tweet-date";
     date.textContent = formatDate(post.created_at);
 
-    header.appendChild(author);
-    header.appendChild(handle);
-    header.appendChild(dot);
-    header.appendChild(date);
+    headerMeta.appendChild(author);
+    headerMeta.appendChild(handle);
+    headerMeta.appendChild(dot);
+    headerMeta.appendChild(date);
+    header.appendChild(headerMeta);
 
     if (adminAuthenticated) {
+      const headerActions = document.createElement("div");
+      headerActions.className = "tweet-head-actions";
       const deletePostButton = createPostDeleteButton(
         post.id,
         async () => {
@@ -1824,7 +1829,8 @@ async function initFeedPage() {
         },
         showDeleteError
       );
-      header.appendChild(deletePostButton);
+      headerActions.appendChild(deletePostButton);
+      header.appendChild(headerActions);
     }
 
     card.appendChild(header);
@@ -2070,6 +2076,8 @@ function renderPost(postViewEl, post, options) {
 
   const header = document.createElement("div");
   header.className = "tweet-head";
+  const headerMeta = document.createElement("div");
+  headerMeta.className = "tweet-head-meta";
 
   const author = document.createElement("strong");
   author.className = "tweet-user";
@@ -2087,10 +2095,11 @@ function renderPost(postViewEl, post, options) {
   date.className = "tweet-date";
   date.textContent = formatDate(post.created_at);
 
-  header.appendChild(author);
-  header.appendChild(handle);
-  header.appendChild(dot);
-  header.appendChild(date);
+  headerMeta.appendChild(author);
+  headerMeta.appendChild(handle);
+  headerMeta.appendChild(dot);
+  headerMeta.appendChild(date);
+  header.appendChild(headerMeta);
   card.appendChild(header);
 
   const title = document.createElement("h1");
