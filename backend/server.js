@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const multer = require("multer");
 const rateLimit = require("express-rate-limit");
 
-const { initDb, seedDb, run, get, all } = require("./db");
+const { initDb, run, get, all } = require("./db");
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -30,6 +30,7 @@ const adminSessionCookieName = "admin_session";
 const adminSessionTtlHours = getPositiveInt(process.env.ADMIN_SESSION_TTL_HOURS, 12);
 const adminSessionTtlMs = adminSessionTtlHours * 60 * 60 * 1000;
 const adminSessionHashSalt = process.env.ADMIN_SESSION_HASH_SALT || adminSecret;
+const adminSessionClockSkewSeconds = getPositiveInt(process.env.ADMIN_SESSION_CLOCK_SKEW_SECONDS, 60);
 const adminLoginRateLimitMax = getPositiveInt(process.env.ADMIN_LOGIN_RATE_LIMIT_MAX, 6);
 
 const uploadsDir = path.join(__dirname, "..", "uploads");
@@ -151,8 +152,41 @@ function hashIpAddress(ipAddress) {
   return crypto.createHash("sha256").update(`${likeIpHashSalt}:${ipAddress}`).digest("hex");
 }
 
-function hashAdminSessionToken(token) {
-  return crypto.createHash("sha256").update(`${adminSessionHashSalt}:${token}`).digest("hex");
+function toBase64Url(input) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function fromBase64Url(input) {
+  const normalized = String(input || "").replace(/-/g, "+").replace(/_/g, "/");
+  if (!normalized) {
+    return Buffer.alloc(0);
+  }
+
+  const padLength = (4 - (normalized.length % 4)) % 4;
+  const padded = normalized + "=".repeat(padLength);
+  return Buffer.from(padded, "base64");
+}
+
+function signAdminSessionPayload(encodedPayload) {
+  return toBase64Url(
+    crypto
+      .createHmac("sha256", adminSessionHashSalt)
+      .update(String(encodedPayload || ""))
+      .digest()
+  );
+}
+
+function formatSqlDatetimeFromUnixSeconds(unixSeconds) {
+  const millis = Number(unixSeconds) * 1000;
+  const date = new Date(millis);
+  if (!Number.isFinite(millis) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
 function secureSecretsMatch(providedSecret, expectedSecret) {
@@ -245,44 +279,95 @@ function clearAdminSessionCookie(res) {
 }
 
 async function deleteExpiredAdminSessions() {
-  await run("DELETE FROM admin_sessions WHERE datetime(expires_at) <= datetime('now')");
+  return;
 }
 
 async function createAdminSession() {
-  const token = crypto.randomBytes(32).toString("hex");
-  const tokenHash = hashAdminSessionToken(token);
-  const expiryModifier = `+${adminSessionTtlHours} hour`;
+  const issuedAtSeconds = Math.floor(Date.now() / 1000);
+  const expiresAtSeconds = issuedAtSeconds + Math.floor(adminSessionTtlMs / 1000);
+  const payload = {
+    v: 1,
+    iat: issuedAtSeconds,
+    exp: expiresAtSeconds,
+    nonce: crypto.randomBytes(16).toString("hex")
+  };
 
-  await deleteExpiredAdminSessions();
-  await run("INSERT INTO admin_sessions (token_hash, expires_at) VALUES (?, datetime('now', ?))", [
-    tokenHash,
-    expiryModifier
-  ]);
+  const encodedPayload = toBase64Url(JSON.stringify(payload));
+  const signature = signAdminSessionPayload(encodedPayload);
 
-  return token;
+  return {
+    token: `${encodedPayload}.${signature}`,
+    createdAt: formatSqlDatetimeFromUnixSeconds(issuedAtSeconds),
+    expiresAt: formatSqlDatetimeFromUnixSeconds(expiresAtSeconds)
+  };
 }
 
 async function deleteAdminSessionByToken(token) {
-  if (!token) {
-    return;
-  }
-
-  const tokenHash = hashAdminSessionToken(token);
-  await run("DELETE FROM admin_sessions WHERE token_hash = ?", [tokenHash]);
+  return;
 }
 
 async function getAdminSessionFromRequest(req) {
-  const token = readCookie(req, adminSessionCookieName);
-  if (!token) {
+  const rawToken = readCookie(req, adminSessionCookieName);
+  if (!rawToken) {
     return null;
   }
 
-  const tokenHash = hashAdminSessionToken(token);
-  const session = await get(
-    "SELECT id, created_at, expires_at FROM admin_sessions WHERE token_hash = ? AND datetime(expires_at) > datetime('now')",
-    [tokenHash]
-  );
-  return session || null;
+  const parts = String(rawToken).split(".");
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const encodedPayload = parts[0];
+  const signature = parts[1];
+  if (!encodedPayload || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signAdminSessionPayload(encodedPayload);
+  if (!secureSecretsMatch(signature, expectedSignature)) {
+    return null;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(fromBase64Url(encodedPayload).toString("utf8"));
+  } catch (error) {
+    return null;
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const issuedAtSeconds = Number(payload.iat);
+  const expiresAtSeconds = Number(payload.exp);
+  if (!Number.isInteger(issuedAtSeconds) || !Number.isInteger(expiresAtSeconds)) {
+    return null;
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (issuedAtSeconds > nowSeconds + adminSessionClockSkewSeconds) {
+    return null;
+  }
+  if (expiresAtSeconds <= nowSeconds - adminSessionClockSkewSeconds) {
+    return null;
+  }
+
+  const maxSessionDurationSeconds = Math.floor(adminSessionTtlMs / 1000);
+  if (expiresAtSeconds - issuedAtSeconds > maxSessionDurationSeconds + adminSessionClockSkewSeconds) {
+    return null;
+  }
+
+  const createdAt = formatSqlDatetimeFromUnixSeconds(issuedAtSeconds);
+  const expiresAt = formatSqlDatetimeFromUnixSeconds(expiresAtSeconds);
+  if (!createdAt || !expiresAt) {
+    return null;
+  }
+
+  return {
+    created_at: createdAt,
+    expires_at: expiresAt
+  };
 }
 
 function requireAdminSession(req, res, next) {
@@ -549,13 +634,15 @@ app.post("/admin/login", adminLoginLimiter, async (req, res, next) => {
       return res.status(401).json({ error: "Invalid admin secret." });
     }
 
-    const token = await createAdminSession();
-    setAdminSessionCookie(res, token);
+    const session = await createAdminSession();
+    setAdminSessionCookie(res, session.token);
 
     res.json({
       ok: true,
       authenticated: true,
-      expires_in_seconds: Math.floor(adminSessionTtlMs / 1000)
+      expires_in_seconds: Math.floor(adminSessionTtlMs / 1000),
+      created_at: session.createdAt,
+      expires_at: session.expiresAt
     });
   } catch (error) {
     next(error);
@@ -931,7 +1018,6 @@ app.use((err, req, res, next) => {
 
 async function start() {
   await initDb();
-  await seedDb();
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
   });
