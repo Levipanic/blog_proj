@@ -49,6 +49,7 @@
             id="nameInput"
             name="name"
             type="text"
+            maxlength="80"
             placeholder="Анонимный посетитель"
             data-i18n-placeholder="post.namePlaceholder"
           />
@@ -58,6 +59,7 @@
             id="contentInput"
             name="content"
             rows="4"
+            maxlength="1000"
             placeholder="Оставьте сообщение..."
             data-i18n-placeholder="post.commentPlaceholder"
             required
@@ -76,7 +78,7 @@
           </div>
 
           <button type="submit" data-i18n="post.send">Отправить комментарий</button>
-          <p id="commentStatus" class="status-text"></p>
+          <p id="commentStatus" class="status-text comment-form-status" role="status" aria-live="polite"></p>
         </form>
       </section>
     </main>

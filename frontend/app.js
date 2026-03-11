@@ -34,6 +34,8 @@ const PLACEHOLDER_IMAGE = "/uploads/missingno.png";
 const ALLOWED_MEDIA_KINDS = new Set(["image", "gif", "video", "audio", "file"]);
 const AUDIO_SESSION_STORAGE_KEY = "stereodamage_audio_session_v1";
 const AUDIO_WAVEFORM_BAR_COUNT = 56;
+const MAX_COMMENT_LENGTH = 1000;
+const COMMENT_COLLAPSE_PREVIEW_LENGTH = 280;
 const audioPlayback = createGlobalAudioPlayback();
 
 function t(key, params, fallback) {
@@ -1911,6 +1913,14 @@ async function initPostPage() {
   const commentListEl = document.getElementById("commentList");
   const commentFormEl = document.getElementById("commentForm");
   const commentStatusEl = document.getElementById("commentStatus");
+  if (commentFormEl && commentFormEl.elements) {
+    if (commentFormEl.elements.content) {
+      commentFormEl.elements.content.maxLength = MAX_COMMENT_LENGTH;
+    }
+    if (commentFormEl.elements.name) {
+      commentFormEl.elements.name.maxLength = 80;
+    }
+  }
 
   if (!Number.isInteger(postId) || postId <= 0) {
     postStatusEl.textContent = t("post.invalidId", null, "Invalid post id.");
@@ -2305,6 +2315,44 @@ function buildCommentTree(comments) {
   return roots;
 }
 
+function renderCommentBody(contentText) {
+  const content = asText(contentText);
+  const bodyWrap = document.createElement("div");
+  bodyWrap.className = "comment-body-wrap";
+
+  const body = document.createElement("p");
+  body.className = "comment-body";
+  bodyWrap.appendChild(body);
+
+  if (content.length <= COMMENT_COLLAPSE_PREVIEW_LENGTH) {
+    body.textContent = content;
+    return bodyWrap;
+  }
+
+  let expanded = false;
+  const toggleButton = document.createElement("button");
+  toggleButton.type = "button";
+  toggleButton.className = "comment-expand-button";
+  toggleButton.setAttribute("aria-expanded", "false");
+
+  function applyBodyState() {
+    body.textContent = expanded ? content : previewText(content, COMMENT_COLLAPSE_PREVIEW_LENGTH);
+    toggleButton.textContent = expanded
+      ? t("post.showLess", null, "Show less")
+      : t("post.showMore", null, "Show more");
+    toggleButton.setAttribute("aria-expanded", String(expanded));
+  }
+
+  toggleButton.addEventListener("click", () => {
+    expanded = !expanded;
+    applyBodyState();
+  });
+
+  applyBodyState();
+  bodyWrap.appendChild(toggleButton);
+  return bodyWrap;
+}
+
 function renderCommentNode(commentNode, depth, options) {
   const renderOptions = options && typeof options === "object" ? options : {};
   const adminAuthenticated = Boolean(renderOptions.adminAuthenticated);
@@ -2342,12 +2390,8 @@ function renderCommentNode(commentNode, depth, options) {
     head.appendChild(headActions);
   }
 
-  const body = document.createElement("p");
-  body.className = "comment-body";
-  body.textContent = commentNode.content;
-
   li.appendChild(head);
-  li.appendChild(body);
+  li.appendChild(renderCommentBody(commentNode.content));
 
   if (canReply) {
     const controls = document.createElement("div");
@@ -2377,7 +2421,7 @@ function renderCommentNode(commentNode, depth, options) {
     replyContentInput.name = "content";
     replyContentInput.required = true;
     replyContentInput.rows = 3;
-    replyContentInput.maxLength = 2000;
+    replyContentInput.maxLength = MAX_COMMENT_LENGTH;
     replyContentInput.placeholder = t("post.replyPlaceholder", null, "Write a reply...");
     replyForm.appendChild(replyContentInput);
 

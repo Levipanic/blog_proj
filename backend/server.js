@@ -26,12 +26,34 @@ const likeCooldownSeconds = getPositiveInt(process.env.LIKE_COOLDOWN_SECONDS, 10
 const likeCooldownMs = likeCooldownSeconds * 1000;
 const likeRateLimitMax = getPositiveInt(process.env.LIKE_RATE_LIMIT_MAX, 20);
 const likeIpHashSalt = process.env.LIKE_IP_HASH_SALT || adminSecret;
+const maxCommentLength = getPositiveInt(process.env.COMMENT_MAX_LENGTH, 1000);
+const commentCooldownSeconds = getPositiveInt(process.env.COMMENT_COOLDOWN_SECONDS, 12);
+const commentCooldownMs = commentCooldownSeconds * 1000;
+const commentBurstWindowSeconds = getPositiveInt(process.env.COMMENT_BURST_WINDOW_SECONDS, 60);
+const commentBurstWindowMs = commentBurstWindowSeconds * 1000;
+const commentBurstMax = getPositiveInt(process.env.COMMENT_BURST_MAX, 6);
+const maxRepeatedCharacterRun = getPositiveInt(process.env.COMMENT_MAX_REPEATED_CHAR_RUN, 18);
+const maxRepeatedSymbolRun = Math.min(
+  maxRepeatedCharacterRun,
+  getPositiveInt(process.env.COMMENT_MAX_REPEATED_SYMBOL_RUN, 10)
+);
+const repetitiveDominanceMinTokenCount = 20;
+const repetitiveDominanceThreshold = 0.72;
+const lowDiversityCheckMinLength = 120;
+const lowDiversityThreshold = 0.08;
+const visualNoiseCheckMinLength = 60;
+const visualNoiseSymbolThreshold = 0.85;
+const commentRateStateByIp = new Map();
 const adminSessionCookieName = "admin_session";
 const adminSessionTtlHours = getPositiveInt(process.env.ADMIN_SESSION_TTL_HOURS, 12);
 const adminSessionTtlMs = adminSessionTtlHours * 60 * 60 * 1000;
 const adminSessionHashSalt = process.env.ADMIN_SESSION_HASH_SALT || adminSecret;
 const adminSessionClockSkewSeconds = getPositiveInt(process.env.ADMIN_SESSION_CLOCK_SKEW_SECONDS, 60);
 const adminLoginRateLimitMax = getPositiveInt(process.env.ADMIN_LOGIN_RATE_LIMIT_MAX, 6);
+const graphemeSegmenter =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
 
 const uploadsDir = path.join(__dirname, "..", "uploads");
 if (!fs.existsSync(uploadsDir)) {
@@ -49,15 +71,6 @@ app.use(async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
-
-const commentLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 3,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => getClientIp(req),
-  message: { error: "Too many comments from this IP. Please try again in a minute." }
 });
 
 const likeLimiter = rateLimit({
@@ -150,6 +163,229 @@ function getClientIp(req) {
 
 function hashIpAddress(ipAddress) {
   return crypto.createHash("sha256").update(`${likeIpHashSalt}:${ipAddress}`).digest("hex");
+}
+
+function toGraphemes(value) {
+  const text = String(value || "");
+  if (!text) {
+    return [];
+  }
+
+  if (graphemeSegmenter) {
+    return Array.from(graphemeSegmenter.segment(text), (item) => item.segment);
+  }
+
+  return Array.from(text);
+}
+
+function isWhitespaceToken(token) {
+  return /^\s+$/u.test(token);
+}
+
+function isWordLikeToken(token) {
+  return /[\p{L}\p{N}]/u.test(token);
+}
+
+function isEmojiOrSymbolToken(token) {
+  if (isWordLikeToken(token)) {
+    return false;
+  }
+  return /[\p{Extended_Pictographic}\p{S}]/u.test(token);
+}
+
+function tokenizeCommentForDominance(content) {
+  const graphemes = toGraphemes(content);
+  const tokens = [];
+  let wordBuffer = "";
+
+  function flushWordBuffer() {
+    if (!wordBuffer) {
+      return;
+    }
+    tokens.push(wordBuffer.toLowerCase());
+    wordBuffer = "";
+  }
+
+  graphemes.forEach((token) => {
+    if (isWhitespaceToken(token)) {
+      flushWordBuffer();
+      return;
+    }
+
+    if (isWordLikeToken(token)) {
+      wordBuffer += token;
+      return;
+    }
+
+    flushWordBuffer();
+
+    if (token.trim()) {
+      tokens.push(token);
+    }
+  });
+
+  flushWordBuffer();
+  return tokens;
+}
+
+function validateCommentContent(rawContent) {
+  const content = asText(rawContent);
+
+  if (!content) {
+    return { error: "Comment cannot be empty." };
+  }
+
+  if (content.length > maxCommentLength) {
+    return { error: `Comment is too long. Maximum is ${maxCommentLength} characters.` };
+  }
+
+  const graphemes = toGraphemes(content).filter((token) => !isWhitespaceToken(token));
+
+  if (graphemes.length === 0) {
+    return { error: "Comment cannot be empty." };
+  }
+
+  let repeatedRunLength = 1;
+  for (let index = 1; index < graphemes.length; index += 1) {
+    const current = graphemes[index];
+    const previous = graphemes[index - 1];
+
+    if (current === previous) {
+      repeatedRunLength += 1;
+
+      if (isEmojiOrSymbolToken(current) && repeatedRunLength > maxRepeatedSymbolRun) {
+        return { error: "Please reduce repeated symbols or emoji." };
+      }
+
+      if (repeatedRunLength > maxRepeatedCharacterRun) {
+        return { error: "Comment is too repetitive." };
+      }
+    } else {
+      repeatedRunLength = 1;
+    }
+  }
+
+  const tokens = tokenizeCommentForDominance(content);
+  if (tokens.length >= repetitiveDominanceMinTokenCount) {
+    const tokenCounts = new Map();
+    let dominantToken = "";
+    let dominantCount = 0;
+
+    tokens.forEach((token) => {
+      const nextCount = (tokenCounts.get(token) || 0) + 1;
+      tokenCounts.set(token, nextCount);
+      if (nextCount > dominantCount) {
+        dominantCount = nextCount;
+        dominantToken = token;
+      }
+    });
+
+    if (dominantCount / tokens.length >= repetitiveDominanceThreshold) {
+      if (isEmojiOrSymbolToken(dominantToken)) {
+        return { error: "Please reduce repeated symbols or emoji." };
+      }
+      return { error: "Comment is too repetitive." };
+    }
+  }
+
+  if (graphemes.length >= lowDiversityCheckMinLength) {
+    const diversityRatio = new Set(graphemes).size / graphemes.length;
+    if (diversityRatio < lowDiversityThreshold) {
+      return { error: "Comment is too repetitive." };
+    }
+  }
+
+  if (graphemes.length >= visualNoiseCheckMinLength) {
+    let symbolCount = 0;
+    let wordLikeCount = 0;
+
+    graphemes.forEach((token) => {
+      if (isWordLikeToken(token)) {
+        wordLikeCount += 1;
+      } else if (isEmojiOrSymbolToken(token)) {
+        symbolCount += 1;
+      }
+    });
+
+    if (symbolCount / graphemes.length >= visualNoiseSymbolThreshold && wordLikeCount < 8) {
+      return { error: "Please reduce repeated symbols or emoji." };
+    }
+  }
+
+  return {
+    content
+  };
+}
+
+function readCommentRateState(ipAddress, now) {
+  const state = commentRateStateByIp.get(ipAddress);
+  if (!state) {
+    return { lastPostedAt: 0, postedAt: [] };
+  }
+
+  if (!Number.isFinite(state.lastPostedAt)) {
+    state.lastPostedAt = 0;
+  }
+
+  const postedAt = Array.isArray(state.postedAt) ? state.postedAt : [];
+  const recentPostedAt = postedAt.filter(
+    (timestamp) => Number.isFinite(timestamp) && now - timestamp < commentBurstWindowMs
+  );
+
+  if (!Array.isArray(state.postedAt) || recentPostedAt.length !== postedAt.length) {
+    state.postedAt = recentPostedAt;
+    commentRateStateByIp.set(ipAddress, state);
+  }
+
+  return state;
+}
+
+function checkCommentRateLimit(ipAddress, now = Date.now()) {
+  const state = readCommentRateState(ipAddress, now);
+
+  if (state.lastPostedAt > 0) {
+    const elapsedMs = now - state.lastPostedAt;
+    if (elapsedMs < commentCooldownMs) {
+      return {
+        limited: true,
+        retryAfterSeconds: Math.max(1, Math.ceil((commentCooldownMs - elapsedMs) / 1000)),
+        error: "You are commenting too quickly. Please wait a moment."
+      };
+    }
+  }
+
+  if (state.postedAt.length >= commentBurstMax) {
+    const oldestPostedAt = state.postedAt[0] || now;
+    const retryAfterMs = Math.max(1000, commentBurstWindowMs - (now - oldestPostedAt));
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+      error: "You are commenting too quickly. Please wait a moment."
+    };
+  }
+
+  return { limited: false, retryAfterSeconds: 0, error: "" };
+}
+
+function recordCommentPosted(ipAddress, now = Date.now()) {
+  const state = readCommentRateState(ipAddress, now);
+  state.lastPostedAt = now;
+  state.postedAt.push(now);
+  commentRateStateByIp.set(ipAddress, state);
+
+  if (commentRateStateByIp.size > 2048) {
+    const staleThreshold = now - commentBurstWindowMs * 2;
+    for (const [ip, entry] of commentRateStateByIp.entries()) {
+      const lastPostedAt = Number(entry && entry.lastPostedAt);
+      const postedAt = Array.isArray(entry && entry.postedAt) ? entry.postedAt : [];
+      const hasRecentActivity =
+        lastPostedAt > staleThreshold || postedAt.some((timestamp) => timestamp > staleThreshold);
+
+      if (!hasRecentActivity) {
+        commentRateStateByIp.delete(ip);
+      }
+    }
+  }
 }
 
 function toBase64Url(input) {
@@ -769,21 +1005,27 @@ app.get("/comments/:post_id", async (req, res, next) => {
   }
 });
 
-app.post("/comments", commentLimiter, async (req, res, next) => {
+app.post("/comments", async (req, res, next) => {
   try {
-    const postId = Number(req.body.post_id);
+    const parsedPostId = Number(req.body.post_id);
+    const postId = Number.isInteger(parsedPostId) && parsedPostId > 0 ? parsedPostId : null;
     const rawParentId = req.body.parent_id;
-    const name = (req.body.name || "").trim();
-    const content = (req.body.content || "").trim();
-    const honeypot = (req.body.website || "").trim();
+    const name = asText(req.body.name);
+    const honeypot = asText(req.body.website);
 
     if (honeypot) {
       return res.status(400).json({ error: "Spam detected." });
     }
 
-    if (!postId || !content) {
-      return res.status(400).json({ error: "post_id and content are required." });
+    if (!postId) {
+      return res.status(400).json({ error: "Invalid post id." });
     }
+
+    const commentValidation = validateCommentContent(req.body.content);
+    if (commentValidation.error) {
+      return res.status(400).json({ error: commentValidation.error });
+    }
+    const content = commentValidation.content;
 
     let parentId = null;
     const hasParentId = rawParentId !== undefined && rawParentId !== null && String(rawParentId).trim() !== "";
@@ -806,10 +1048,18 @@ app.post("/comments", commentLimiter, async (req, res, next) => {
       }
     }
 
+    const clientIp = getClientIp(req);
+    const commentRateLimit = checkCommentRateLimit(clientIp);
+    if (commentRateLimit.limited) {
+      res.set("Retry-After", String(commentRateLimit.retryAfterSeconds));
+      return res.status(429).json({ error: commentRateLimit.error });
+    }
+
     await run(
       "INSERT INTO comments (post_id, parent_id, name, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
       [postId, parentId, name || null, content]
     );
+    recordCommentPosted(clientIp);
 
     res.status(201).json({ ok: true });
   } catch (error) {

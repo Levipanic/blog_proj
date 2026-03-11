@@ -81,6 +81,8 @@
       "post.emptyBlocks": "В этом посте нет читаемых блоков.",
       "post.fileAttached": "Прикрепленный файл",
       "post.noComments": "Комментариев пока нет. Напишите первым.",
+      "post.showMore": "Показать полностью",
+      "post.showLess": "Свернуть",
       "admin.title": "Админка",
       "admin.subtitle": "Войдите один раз, затем загружайте файлы и создавайте посты.",
       "admin.loginTitle": "Вход в админку",
@@ -180,6 +182,11 @@
       "errors.likeCooldown": "Вы недавно уже лайкали этот пост. Подождите около {seconds} сек.",
       "errors.spam": "Обнаружен спам.",
       "errors.commentRequired": "Нужны поля post_id и content.",
+      "errors.commentEmpty": "Комментарий не может быть пустым.",
+      "errors.commentTooLong": "Комментарий слишком длинный. Максимум {max} символов.",
+      "errors.commentTooRepetitive": "Комментарий выглядит слишком однообразным.",
+      "errors.commentTooNoisy": "Пожалуйста, уменьшите повторы символов или эмодзи.",
+      "errors.commentRateLimited": "Вы комментируете слишком быстро. Подождите немного.",
       "errors.adminRequired": "Требуется вход в админку.",
       "errors.adminSecretRequired": "Нужен админ-секрет.",
       "errors.adminSecretInvalid": "Неверный админ-секрет.",
@@ -266,6 +273,8 @@
       "post.emptyBlocks": "This post has no readable blocks.",
       "post.fileAttached": "Attached file",
       "post.noComments": "No comments yet. Be the first visitor to write one.",
+      "post.showMore": "Show more",
+      "post.showLess": "Show less",
       "admin.title": "Admin",
       "admin.subtitle": "Login once, then upload files and create posts.",
       "admin.loginTitle": "Admin Login",
@@ -365,6 +374,11 @@
       "errors.likeCooldown": "You already liked this post recently. Please wait about {seconds} seconds.",
       "errors.spam": "Spam detected.",
       "errors.commentRequired": "post_id and content are required.",
+      "errors.commentEmpty": "Comment cannot be empty.",
+      "errors.commentTooLong": "Comment is too long. Maximum is {max} characters.",
+      "errors.commentTooRepetitive": "Comment is too repetitive.",
+      "errors.commentTooNoisy": "Please reduce repeated symbols or emoji.",
+      "errors.commentRateLimited": "You are commenting too quickly. Please wait a moment.",
       "errors.adminRequired": "Admin login required.",
       "errors.adminSecretRequired": "Admin secret is required.",
       "errors.adminSecretInvalid": "Invalid admin secret.",
@@ -486,6 +500,12 @@
     }
     if (message === "Spam detected.") return t("errors.spam");
     if (message === "post_id and content are required.") return t("errors.commentRequired");
+    if (message === "Comment cannot be empty.") return t("errors.commentEmpty");
+    if (message === "Comment is too repetitive.") return t("errors.commentTooRepetitive");
+    if (message === "Please reduce repeated symbols or emoji.") return t("errors.commentTooNoisy");
+    if (message === "You are commenting too quickly. Please wait a moment.") {
+      return t("errors.commentRateLimited");
+    }
     if (message === "Admin login required.") return t("errors.adminRequired");
     if (message === "Admin secret is required.") return t("errors.adminSecretRequired");
     if (message === "Invalid admin secret.") return t("errors.adminSecretInvalid");
@@ -497,6 +517,11 @@
     if (message.startsWith("File is too large. Max size is ")) {
       const size = message.replace("File is too large. Max size is ", "").replace(/\.$/, "");
       return t("errors.fileTooLarge", { size });
+    }
+
+    if (message.startsWith("Comment is too long. Maximum is ")) {
+      const max = message.replace("Comment is too long. Maximum is ", "").replace(/ characters\.$/, "");
+      return t("errors.commentTooLong", { max });
     }
 
     if (message.startsWith("Invalid post payload.")) {

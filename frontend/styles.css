@@ -57,6 +57,8 @@
   --input-border: #c9ada0;
   --status-ok: #256f45;
   --status-error: #9d2c2c;
+  --status-ok-bg: rgba(37, 111, 69, 0.13);
+  --status-error-bg: rgba(157, 44, 44, 0.13);
   --shadow-soft: rgba(91, 62, 62, 0.16);
   --panel-radius: 8px;
   --control-radius: 6px;
@@ -121,6 +123,8 @@
   --input-border: #665d98;
   --status-ok: #7cdda7;
   --status-error: #ff9d9d;
+  --status-ok-bg: rgba(124, 221, 167, 0.16);
+  --status-error-bg: rgba(255, 157, 157, 0.16);
   --shadow-soft: rgba(15, 11, 26, 0.56);
 }
 
@@ -1022,6 +1026,29 @@ select {
   overflow-wrap: anywhere;
 }
 
+.comment-body-wrap {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.comment-expand-button {
+  justify-self: start;
+  min-height: 2rem;
+  padding: 0.28rem 0.68rem;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.comment-expand-button:hover {
+  background: var(--surface-hover);
+}
+
 .comment-controls {
   margin-top: 0.44rem;
   display: flex;
@@ -1094,6 +1121,30 @@ select {
   color: var(--text-muted);
   font-size: 0.82rem;
   overflow-wrap: anywhere;
+}
+
+.comment-form-status,
+.comment-reply-status {
+  border-radius: var(--control-radius);
+  padding: 0.4rem 0.52rem;
+}
+
+.comment-form-status:empty,
+.comment-reply-status:empty {
+  border: 0;
+  padding: 0;
+}
+
+.comment-form-status.status-ok,
+.comment-reply-status.status-ok {
+  border: 1px solid var(--status-ok);
+  background: var(--status-ok-bg);
+}
+
+.comment-form-status.status-error,
+.comment-reply-status.status-error {
+  border: 1px solid var(--status-error);
+  background: var(--status-error-bg);
 }
 
 .comment-form {
