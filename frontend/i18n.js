@@ -186,7 +186,17 @@
       "errors.commentTooLong": "Комментарий слишком длинный. Максимум {max} символов.",
       "errors.commentTooRepetitive": "Комментарий выглядит слишком однообразным.",
       "errors.commentTooNoisy": "Пожалуйста, уменьшите повторы символов или эмодзи.",
+      "errors.commentTooManyLinks": "В комментарии слишком много ссылок. Уменьшите их количество.",
       "errors.commentRateLimited": "Вы комментируете слишком быстро. Подождите немного.",
+      "errors.commentAttemptsRate": "Слишком много попыток отправить комментарий. Подождите немного.",
+      "errors.commentDuplicate": "Такой же комментарий уже недавно отправлялся. Подождите или измените текст.",
+      "errors.commentNameTooLong": "Имя слишком длинное. Максимум {max} символов.",
+      "errors.commentUnsupportedType": "Комментарии принимаются только в формате JSON.",
+      "errors.commentBodyTooLarge": "Слишком большой запрос комментария. Сократите имя или текст.",
+      "errors.invalidJsonBody": "Некорректный JSON в запросе.",
+      "errors.invalidRequestPayload": "Некорректное тело запроса.",
+      "errors.requestTooLarge": "Слишком большой запрос.",
+      "errors.adminPostRateLimit": "Слишком много попыток создания постов. Подождите несколько минут.",
       "errors.adminRequired": "Требуется вход в админку.",
       "errors.adminSecretRequired": "Нужен админ-секрет.",
       "errors.adminSecretInvalid": "Неверный админ-секрет.",
@@ -378,7 +388,17 @@
       "errors.commentTooLong": "Comment is too long. Maximum is {max} characters.",
       "errors.commentTooRepetitive": "Comment is too repetitive.",
       "errors.commentTooNoisy": "Please reduce repeated symbols or emoji.",
+      "errors.commentTooManyLinks": "Comment has too many links. Please reduce links in your message.",
       "errors.commentRateLimited": "You are commenting too quickly. Please wait a moment.",
+      "errors.commentAttemptsRate": "Too many comment attempts from this IP. Please slow down and try again.",
+      "errors.commentDuplicate": "You posted the same comment very recently. Please wait or edit it.",
+      "errors.commentNameTooLong": "Comment name is too long. Maximum is {max} characters.",
+      "errors.commentUnsupportedType": "Comments accept JSON requests only.",
+      "errors.commentBodyTooLarge": "Comment request is too large. Please shorten your name or comment.",
+      "errors.invalidJsonBody": "Invalid JSON body.",
+      "errors.invalidRequestPayload": "Invalid request payload.",
+      "errors.requestTooLarge": "Request is too large.",
+      "errors.adminPostRateLimit": "Too many post creation attempts. Please wait a few minutes and try again.",
       "errors.adminRequired": "Admin login required.",
       "errors.adminSecretRequired": "Admin secret is required.",
       "errors.adminSecretInvalid": "Invalid admin secret.",
@@ -503,8 +523,29 @@
     if (message === "Comment cannot be empty.") return t("errors.commentEmpty");
     if (message === "Comment is too repetitive.") return t("errors.commentTooRepetitive");
     if (message === "Please reduce repeated symbols or emoji.") return t("errors.commentTooNoisy");
+    if (message === "Comment has too many links. Please reduce links in your message.") {
+      return t("errors.commentTooManyLinks");
+    }
     if (message === "You are commenting too quickly. Please wait a moment.") {
       return t("errors.commentRateLimited");
+    }
+    if (message === "Too many comment attempts from this IP. Please slow down and try again.") {
+      return t("errors.commentAttemptsRate");
+    }
+    if (message === "You posted the same comment very recently. Please wait or edit it.") {
+      return t("errors.commentDuplicate");
+    }
+    if (message === "Unsupported content type. Please send JSON.") {
+      return t("errors.commentUnsupportedType");
+    }
+    if (message === "Comment request is too large. Please shorten your name or comment.") {
+      return t("errors.commentBodyTooLarge");
+    }
+    if (message === "Invalid JSON body.") return t("errors.invalidJsonBody");
+    if (message === "Invalid request payload.") return t("errors.invalidRequestPayload");
+    if (message === "Request is too large.") return t("errors.requestTooLarge");
+    if (message === "Too many post creation attempts. Please wait a few minutes and try again.") {
+      return t("errors.adminPostRateLimit");
     }
     if (message === "Admin login required.") return t("errors.adminRequired");
     if (message === "Admin secret is required.") return t("errors.adminSecretRequired");
@@ -522,6 +563,13 @@
     if (message.startsWith("Comment is too long. Maximum is ")) {
       const max = message.replace("Comment is too long. Maximum is ", "").replace(/ characters\.$/, "");
       return t("errors.commentTooLong", { max });
+    }
+
+    if (message.startsWith("Comment name is too long. Maximum is ")) {
+      const max = message
+        .replace("Comment name is too long. Maximum is ", "")
+        .replace(/ characters\.$/, "");
+      return t("errors.commentNameTooLong", { max });
     }
 
     if (message.startsWith("Invalid post payload.")) {

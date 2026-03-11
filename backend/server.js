@@ -13,6 +13,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const adminSecret = process.env.ADMIN_SECRET || "change-me";
 const isProduction = process.env.NODE_ENV === "production";
+const hasDefaultAdminSecret = adminSecret === "change-me";
 
 function getPositiveInt(value, fallback) {
   const number = Number(value);
@@ -22,28 +23,81 @@ function getPositiveInt(value, fallback) {
   return Math.floor(number);
 }
 
+function getBooleanFlag(value, fallback) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+
+  return fallback;
+}
+
+function getPositiveNumber(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+  return number;
+}
+
 const likeCooldownSeconds = getPositiveInt(process.env.LIKE_COOLDOWN_SECONDS, 10);
 const likeCooldownMs = likeCooldownSeconds * 1000;
 const likeRateLimitMax = getPositiveInt(process.env.LIKE_RATE_LIMIT_MAX, 20);
 const likeIpHashSalt = process.env.LIKE_IP_HASH_SALT || adminSecret;
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || "256kb";
+const urlencodedBodyLimit = process.env.URLENCODED_BODY_LIMIT || "64kb";
+const urlencodedParameterLimit = getPositiveInt(process.env.URLENCODED_PARAMETER_LIMIT, 100);
+const trustProxy = getBooleanFlag(process.env.TRUST_PROXY, false);
+const maxCommentNameLength = getPositiveInt(process.env.COMMENT_MAX_NAME_LENGTH, 80);
 const maxCommentLength = getPositiveInt(process.env.COMMENT_MAX_LENGTH, 1000);
+const commentAttemptRateLimitWindowSeconds = getPositiveInt(
+  process.env.COMMENT_ATTEMPT_RATE_LIMIT_WINDOW_SECONDS,
+  60
+);
+const commentAttemptRateLimitMax = getPositiveInt(process.env.COMMENT_ATTEMPT_RATE_LIMIT_MAX, 40);
 const commentCooldownSeconds = getPositiveInt(process.env.COMMENT_COOLDOWN_SECONDS, 12);
 const commentCooldownMs = commentCooldownSeconds * 1000;
 const commentBurstWindowSeconds = getPositiveInt(process.env.COMMENT_BURST_WINDOW_SECONDS, 60);
 const commentBurstWindowMs = commentBurstWindowSeconds * 1000;
 const commentBurstMax = getPositiveInt(process.env.COMMENT_BURST_MAX, 6);
+const commentDuplicateWindowSeconds = getPositiveInt(process.env.COMMENT_DUPLICATE_WINDOW_SECONDS, 180);
+const commentDuplicateWindowMs = commentDuplicateWindowSeconds * 1000;
+const maxCommentUrlCount = getPositiveInt(process.env.COMMENT_MAX_URL_COUNT, 4);
 const maxRepeatedCharacterRun = getPositiveInt(process.env.COMMENT_MAX_REPEATED_CHAR_RUN, 18);
 const maxRepeatedSymbolRun = Math.min(
   maxRepeatedCharacterRun,
   getPositiveInt(process.env.COMMENT_MAX_REPEATED_SYMBOL_RUN, 10)
 );
+const maxRepeatedTokenRun = getPositiveInt(process.env.COMMENT_MAX_REPEATED_TOKEN_RUN, 12);
 const repetitiveDominanceMinTokenCount = 20;
 const repetitiveDominanceThreshold = 0.72;
+const lowTokenDiversityMinTokenCount = getPositiveInt(
+  process.env.COMMENT_LOW_TOKEN_DIVERSITY_MIN_TOKEN_COUNT,
+  24
+);
+const lowTokenDiversityThreshold = Math.min(
+  1,
+  getPositiveNumber(process.env.COMMENT_LOW_TOKEN_DIVERSITY_THRESHOLD, 0.2)
+);
 const lowDiversityCheckMinLength = 120;
 const lowDiversityThreshold = 0.08;
 const visualNoiseCheckMinLength = 60;
 const visualNoiseSymbolThreshold = 0.85;
 const commentRateStateByIp = new Map();
+const commentDuplicateStateByIp = new Map();
+const maxPostBlocks = getPositiveInt(process.env.POST_MAX_BLOCKS, 60);
+const maxPostTextLength = getPositiveInt(process.env.POST_MAX_TEXT_LENGTH, 4000);
+const maxPostMediaTextLength = getPositiveInt(process.env.POST_MAX_MEDIA_TEXT_LENGTH, 500);
+const adminPostRateLimitWindowSeconds = getPositiveInt(
+  process.env.ADMIN_POST_RATE_LIMIT_WINDOW_SECONDS,
+  300
+);
+const adminPostRateLimitMax = getPositiveInt(process.env.ADMIN_POST_RATE_LIMIT_MAX, 12);
 const adminSessionCookieName = "admin_session";
 const adminSessionTtlHours = getPositiveInt(process.env.ADMIN_SESSION_TTL_HOURS, 12);
 const adminSessionTtlMs = adminSessionTtlHours * 60 * 60 * 1000;
@@ -60,8 +114,22 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.disable("x-powered-by");
+app.set("trust proxy", trustProxy);
+app.use((req, res, next) => {
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("X-Frame-Options", "DENY");
+  res.set("Referrer-Policy", "same-origin");
+  next();
+});
+app.use(express.json({ limit: jsonBodyLimit }));
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: urlencodedBodyLimit,
+    parameterLimit: urlencodedParameterLimit
+  })
+);
 app.use("/uploads", express.static(uploadsDir));
 app.use(express.static(path.join(__dirname, "..", "frontend")));
 app.use(async (req, res, next) => {
@@ -89,6 +157,24 @@ const adminLoginLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
   message: { error: "Too many admin login attempts. Please try again in about 15 minutes." }
+});
+
+const commentAttemptLimiter = rateLimit({
+  windowMs: commentAttemptRateLimitWindowSeconds * 1000,
+  max: commentAttemptRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+  message: { error: "Too many comment attempts from this IP. Please slow down and try again." }
+});
+
+const adminPostLimiter = rateLimit({
+  windowMs: adminPostRateLimitWindowSeconds * 1000,
+  max: adminPostRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+  message: { error: "Too many post creation attempts. Please wait a few minutes and try again." }
 });
 
 const allowedMediaKinds = new Set(["image", "gif", "video", "audio", "file"]);
@@ -150,15 +236,13 @@ function removeFileIfExists(filePath) {
 }
 
 function getClientIp(req) {
-  const forwardedHeader = req.headers["x-forwarded-for"];
-  const forwarded = Array.isArray(forwardedHeader) ? forwardedHeader[0] : asText(forwardedHeader);
-
-  if (forwarded) {
-    const [first] = forwarded.split(",");
-    return asText(first) || "unknown";
+  const expressIp = asText(req.ip);
+  if (expressIp) {
+    return expressIp;
   }
 
-  return asText(req.ip) || "unknown";
+  const socketIp = asText(req.socket && req.socket.remoteAddress);
+  return socketIp || "unknown";
 }
 
 function hashIpAddress(ipAddress) {
@@ -239,6 +323,11 @@ function validateCommentContent(rawContent) {
     return { error: `Comment is too long. Maximum is ${maxCommentLength} characters.` };
   }
 
+  const urlMatches = content.match(/(?:https?:\/\/|www\.)/giu);
+  if (urlMatches && urlMatches.length > maxCommentUrlCount) {
+    return { error: "Comment has too many links. Please reduce links in your message." };
+  }
+
   const graphemes = toGraphemes(content).filter((token) => !isWhitespaceToken(token));
 
   if (graphemes.length === 0) {
@@ -266,6 +355,24 @@ function validateCommentContent(rawContent) {
   }
 
   const tokens = tokenizeCommentForDominance(content);
+  if (tokens.length > 1) {
+    let repeatedTokenRun = 1;
+    for (let index = 1; index < tokens.length; index += 1) {
+      if (tokens[index] === tokens[index - 1]) {
+        repeatedTokenRun += 1;
+        if (repeatedTokenRun > maxRepeatedTokenRun) {
+          const token = tokens[index];
+          if (isEmojiOrSymbolToken(token)) {
+            return { error: "Please reduce repeated symbols or emoji." };
+          }
+          return { error: "Comment is too repetitive." };
+        }
+      } else {
+        repeatedTokenRun = 1;
+      }
+    }
+  }
+
   if (tokens.length >= repetitiveDominanceMinTokenCount) {
     const tokenCounts = new Map();
     let dominantToken = "";
@@ -284,6 +391,13 @@ function validateCommentContent(rawContent) {
       if (isEmojiOrSymbolToken(dominantToken)) {
         return { error: "Please reduce repeated symbols or emoji." };
       }
+      return { error: "Comment is too repetitive." };
+    }
+  }
+
+  if (tokens.length >= lowTokenDiversityMinTokenCount) {
+    const tokenDiversityRatio = new Set(tokens).size / tokens.length;
+    if (tokenDiversityRatio < lowTokenDiversityThreshold) {
       return { error: "Comment is too repetitive." };
     }
   }
@@ -340,7 +454,25 @@ function readCommentRateState(ipAddress, now) {
   return state;
 }
 
-function checkCommentRateLimit(ipAddress, now = Date.now()) {
+function cleanupCommentRateState(now = Date.now()) {
+  if (commentRateStateByIp.size <= 2048) {
+    return;
+  }
+
+  const staleThreshold = now - commentBurstWindowMs * 2;
+  for (const [ip, entry] of commentRateStateByIp.entries()) {
+    const lastPostedAt = Number(entry && entry.lastPostedAt);
+    const postedAt = Array.isArray(entry && entry.postedAt) ? entry.postedAt : [];
+    const hasRecentActivity =
+      lastPostedAt > staleThreshold || postedAt.some((timestamp) => timestamp > staleThreshold);
+
+    if (!hasRecentActivity) {
+      commentRateStateByIp.delete(ip);
+    }
+  }
+}
+
+function consumeCommentRateSlot(ipAddress, now = Date.now()) {
   const state = readCommentRateState(ipAddress, now);
 
   if (state.lastPostedAt > 0) {
@@ -364,28 +496,95 @@ function checkCommentRateLimit(ipAddress, now = Date.now()) {
     };
   }
 
-  return { limited: false, retryAfterSeconds: 0, error: "" };
-}
-
-function recordCommentPosted(ipAddress, now = Date.now()) {
-  const state = readCommentRateState(ipAddress, now);
   state.lastPostedAt = now;
   state.postedAt.push(now);
   commentRateStateByIp.set(ipAddress, state);
+  cleanupCommentRateState(now);
 
-  if (commentRateStateByIp.size > 2048) {
-    const staleThreshold = now - commentBurstWindowMs * 2;
-    for (const [ip, entry] of commentRateStateByIp.entries()) {
-      const lastPostedAt = Number(entry && entry.lastPostedAt);
-      const postedAt = Array.isArray(entry && entry.postedAt) ? entry.postedAt : [];
-      const hasRecentActivity =
-        lastPostedAt > staleThreshold || postedAt.some((timestamp) => timestamp > staleThreshold);
+  return { limited: false, retryAfterSeconds: 0, error: "" };
+}
 
-      if (!hasRecentActivity) {
-        commentRateStateByIp.delete(ip);
-      }
+function normalizeCommentForDuplicateSignature(content) {
+  return asText(content)
+    .toLowerCase()
+    .replace(/\s+/gu, " ");
+}
+
+function pruneDuplicateCommentMapEntries(entryMap, now = Date.now()) {
+  const threshold = now - commentDuplicateWindowMs;
+  for (const [signature, timestamp] of entryMap.entries()) {
+    if (!Number.isFinite(timestamp) || timestamp <= threshold) {
+      entryMap.delete(signature);
     }
   }
+}
+
+function getDuplicateCommentSignature(postId, content) {
+  const normalized = normalizeCommentForDuplicateSignature(content);
+  return crypto.createHash("sha256").update(`${postId}:${normalized}`).digest("hex");
+}
+
+function readDuplicateCommentState(ipAddress, now = Date.now()) {
+  const state = commentDuplicateStateByIp.get(ipAddress);
+  if (!(state instanceof Map)) {
+    return new Map();
+  }
+
+  pruneDuplicateCommentMapEntries(state, now);
+  if (state.size === 0) {
+    commentDuplicateStateByIp.delete(ipAddress);
+  }
+  return state;
+}
+
+function cleanupDuplicateCommentState(now = Date.now()) {
+  if (commentDuplicateStateByIp.size <= 2048) {
+    return;
+  }
+
+  for (const [ipAddress, state] of commentDuplicateStateByIp.entries()) {
+    if (!(state instanceof Map)) {
+      commentDuplicateStateByIp.delete(ipAddress);
+      continue;
+    }
+    pruneDuplicateCommentMapEntries(state, now);
+    if (state.size === 0) {
+      commentDuplicateStateByIp.delete(ipAddress);
+    }
+  }
+}
+
+function checkDuplicateComment(ipAddress, postId, content, now = Date.now()) {
+  const state = readDuplicateCommentState(ipAddress, now);
+  const signature = getDuplicateCommentSignature(postId, content);
+  const previousPostedAt = Number(state.get(signature) || 0);
+  if (!Number.isFinite(previousPostedAt) || previousPostedAt <= 0) {
+    return { duplicate: false, retryAfterSeconds: 0 };
+  }
+
+  const elapsedMs = now - previousPostedAt;
+  if (elapsedMs >= commentDuplicateWindowMs) {
+    return { duplicate: false, retryAfterSeconds: 0 };
+  }
+
+  const retryAfterSeconds = Math.max(1, Math.ceil((commentDuplicateWindowMs - elapsedMs) / 1000));
+  return { duplicate: true, retryAfterSeconds };
+}
+
+function rememberDuplicateComment(ipAddress, postId, content, now = Date.now()) {
+  const existing = readDuplicateCommentState(ipAddress, now);
+  const state = existing instanceof Map ? existing : new Map();
+  const signature = getDuplicateCommentSignature(postId, content);
+  state.set(signature, now);
+  commentDuplicateStateByIp.set(ipAddress, state);
+  cleanupDuplicateCommentState(now);
+}
+
+function requireJsonRequest(req, res, next) {
+  if (req.is(["application/json", "application/*+json"])) {
+    return next();
+  }
+  return res.status(415).json({ error: "Unsupported content type. Please send JSON." });
 }
 
 function toBase64Url(input) {
@@ -715,6 +914,9 @@ function validateAndNormalizePostBlock(rawBlock, index) {
     if (!text) {
       return { error: `${fieldPrefix}.text is required for ${type}.` };
     }
+    if (text.length > maxPostTextLength) {
+      return { error: `${fieldPrefix}.text must be at most ${maxPostTextLength} characters.` };
+    }
     return { block: { type, text } };
   }
 
@@ -726,6 +928,9 @@ function validateAndNormalizePostBlock(rawBlock, index) {
     }
     if (![1, 2, 3].includes(level)) {
       return { error: `${fieldPrefix}.level must be 1, 2, or 3.` };
+    }
+    if (text.length > maxPostTextLength) {
+      return { error: `${fieldPrefix}.text must be at most ${maxPostTextLength} characters.` };
     }
     return { block: { type: "heading", level, text } };
   }
@@ -760,6 +965,16 @@ function validateAndNormalizePostBlock(rawBlock, index) {
     const alt = asText(rawBlock.alt);
     const caption = asText(rawBlock.caption);
 
+    if (name.length > maxPostMediaTextLength) {
+      return { error: `${fieldPrefix}.name must be at most ${maxPostMediaTextLength} characters.` };
+    }
+    if (alt.length > maxPostMediaTextLength) {
+      return { error: `${fieldPrefix}.alt must be at most ${maxPostMediaTextLength} characters.` };
+    }
+    if (caption.length > maxPostMediaTextLength) {
+      return { error: `${fieldPrefix}.caption must be at most ${maxPostMediaTextLength} characters.` };
+    }
+
     if (name) block.name = name;
     if (alt) block.alt = alt;
     if (caption) block.caption = caption;
@@ -784,6 +999,8 @@ function validateCreatePostPayload(body) {
 
   if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
     errors.push("blocks must be a non-empty array.");
+  } else if (rawBlocks.length > maxPostBlocks) {
+    errors.push(`blocks must contain at most ${maxPostBlocks} items.`);
   } else {
     rawBlocks.forEach((rawBlock, index) => {
       const result = validateAndNormalizePostBlock(rawBlock, index);
@@ -1005,7 +1222,7 @@ app.get("/comments/:post_id", async (req, res, next) => {
   }
 });
 
-app.post("/comments", async (req, res, next) => {
+app.post("/comments", requireJsonRequest, commentAttemptLimiter, async (req, res, next) => {
   try {
     const parsedPostId = Number(req.body.post_id);
     const postId = Number.isInteger(parsedPostId) && parsedPostId > 0 ? parsedPostId : null;
@@ -1019,6 +1236,12 @@ app.post("/comments", async (req, res, next) => {
 
     if (!postId) {
       return res.status(400).json({ error: "Invalid post id." });
+    }
+
+    if (name.length > maxCommentNameLength) {
+      return res
+        .status(400)
+        .json({ error: `Comment name is too long. Maximum is ${maxCommentNameLength} characters.` });
     }
 
     const commentValidation = validateCommentContent(req.body.content);
@@ -1036,6 +1259,22 @@ app.post("/comments", async (req, res, next) => {
       }
     }
 
+    const clientIp = getClientIp(req);
+    const now = Date.now();
+    const duplicateComment = checkDuplicateComment(clientIp, postId, content, now);
+    if (duplicateComment.duplicate) {
+      res.set("Retry-After", String(duplicateComment.retryAfterSeconds));
+      return res.status(429).json({
+        error: "You posted the same comment very recently. Please wait or edit it."
+      });
+    }
+
+    const commentRateLimit = consumeCommentRateSlot(clientIp, now);
+    if (commentRateLimit.limited) {
+      res.set("Retry-After", String(commentRateLimit.retryAfterSeconds));
+      return res.status(429).json({ error: commentRateLimit.error });
+    }
+
     const postExists = await get("SELECT id FROM posts WHERE id = ?", [postId]);
     if (!postExists) {
       return res.status(404).json({ error: "Post not found." });
@@ -1048,18 +1287,11 @@ app.post("/comments", async (req, res, next) => {
       }
     }
 
-    const clientIp = getClientIp(req);
-    const commentRateLimit = checkCommentRateLimit(clientIp);
-    if (commentRateLimit.limited) {
-      res.set("Retry-After", String(commentRateLimit.retryAfterSeconds));
-      return res.status(429).json({ error: commentRateLimit.error });
-    }
-
     await run(
       "INSERT INTO comments (post_id, parent_id, name, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
       [postId, parentId, name || null, content]
     );
-    recordCommentPosted(clientIp);
+    rememberDuplicateComment(clientIp, postId, content, now);
 
     res.status(201).json({ ok: true });
   } catch (error) {
@@ -1175,7 +1407,7 @@ app.post("/posts/:id/like", likeLimiter, async (req, res, next) => {
   }
 });
 
-app.post("/posts", requireAdminSession, async (req, res, next) => {
+app.post("/posts", requireAdminSession, adminPostLimiter, async (req, res, next) => {
   try {
     const payload = validateCreatePostPayload(req.body);
     if (payload.errors.length > 0) {
@@ -1262,11 +1494,41 @@ app.get("/{*path}", (req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  const statusCode = Number(err && (err.status || err.statusCode)) || 0;
+  const errorType = String((err && err.type) || "").toLowerCase();
+
+  if (errorType === "entity.too.large" || statusCode === 413) {
+    if (req.path === "/comments" && req.method === "POST") {
+      return res
+        .status(413)
+        .json({ error: "Comment request is too large. Please shorten your name or comment." });
+    }
+    return res.status(413).json({ error: "Request is too large." });
+  }
+
+  if (errorType === "entity.parse.failed") {
+    if (req.path === "/comments" && req.method === "POST") {
+      return res.status(400).json({ error: "Invalid JSON body." });
+    }
+    return res.status(400).json({ error: "Invalid request payload." });
+  }
+
+  if (statusCode === 415) {
+    return res.status(415).json({ error: "Unsupported content type. Please send JSON." });
+  }
+
   console.error(err);
-  res.status(500).json({ error: "Internal server error." });
+  return res.status(500).json({ error: "Internal server error." });
 });
 
 async function start() {
+  if (hasDefaultAdminSecret) {
+    if (isProduction) {
+      throw new Error("ADMIN_SECRET must be changed from the default value in production.");
+    }
+    console.warn("Warning: ADMIN_SECRET uses the default value. Set a strong secret before deployment.");
+  }
+
   await initDb();
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
