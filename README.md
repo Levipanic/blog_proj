@@ -1,558 +1,721 @@
-# StereoDamage Blog Project
+# StereoDamage Blog (MVP)
 
-> Старый README сохранен в отдельном файле: [README.legacy.md](./README.legacy.md).
+Актуальная документация проекта по текущему коду (`backend/server.js`, `backend/db.js`, `frontend/*`).
 
-`StereoDamage` - персональный microblog/art-blog с публичной лентой постов, комментариями, лайками, медиа-блоками и приватной админ-панелью для публикации.
+## Что это за проект
 
-Проект построен как MVP: минимум зависимостей, простой стек (Node.js + Express + SQLite + Vanilla JS), акцент на быстром запуске и контроле владельца сайта.
+`StereoDamage` - минималистичный персональный блог:
 
-## Содержание
+- публичная лента постов;
+- отдельная страница поста;
+- комментарии с ответами (threaded);
+- лайки;
+- медиа-блоки (image/gif/video/audio/file);
+- приватная админ-панель для публикации/удаления постов, удаления комментариев и загрузки файлов.
 
-1. [Кратко о проекте](#кратко-о-проекте)
-2. [Ключевые возможности](#ключевые-возможности)
-3. [Технологический стек](#технологический-стек)
-4. [Структура репозитория](#структура-репозитория)
-5. [Быстрый старт (локально)](#быстрый-старт-локально)
-6. [Конфигурация через .env](#конфигурация-через-env)
-7. [Как пользоваться продуктом](#как-пользоваться-продуктом)
-8. [Модель данных и инициализация БД](#модель-данных-и-инициализация-бд)
-9. [Формат постов и блоков](#формат-постов-и-блоков)
-10. [HTTP API](#http-api)
-11. [Безопасность и ограничения](#безопасность-и-ограничения)
-12. [Деплой в production](#деплой-в-production)
-13. [Операционка: обновления, бэкапы, восстановление](#операционка-обновления-бэкапы-восстановление)
-14. [Smoke-check после запуска](#smoke-check-после-запуска)
-15. [Troubleshooting](#troubleshooting)
-16. [Известные ограничения MVP](#известные-ограничения-mvp)
+Стек без сборки фронтенда: `Node.js + Express + SQLite + Vanilla JS`.
 
-## Кратко о проекте
+## Реально доступные страницы
 
-- Сайт с тремя основными страницами:
-  - `/` - лента постов (новые сверху).
-  - `/post.html?id=<id>` - отдельный пост + комментарии.
-  - `/admin` - закрытая админка для входа, загрузки файлов и публикации.
-- Публикация постов доступна только администратору (по `ADMIN_SECRET` + cookie-сессия).
-- Посетители без регистрации могут:
-  - читать посты,
-  - ставить лайки,
-  - оставлять комментарии.
-- Контент постов хранится как JSON-массив блоков (`blocks_json`) в SQLite.
+- `/` - лента постов.
+- `/post.html?id=<postId>` - страница поста и комментарии.
+- `/admin` - вход в админку и интерфейс публикации.
 
-## Ключевые возможности
+Дополнительно:
 
-1. Публичная лента постов
+- статика из `frontend/` отдается напрямую;
+- `/uploads/*` отдается как статический каталог;
+- все остальные неизвестные маршруты отдают `frontend/index.html` (fallback роут).
 
-- reverse chronological order;
-- превью первого текстового абзаца;
-- превью первого image/gif блока;
-- лайк-кнопка прямо в ленте;
-- превью последних комментариев.
+## Ключевые функции
 
-1. Полная страница поста
+### Публичная часть
 
-- рендер блоков (`paragraph`, `heading`, `quote`, `divider`, `media`);
-- поддержка `image/gif/video/audio/file`;
-- форма комментария с honeypot-полем;
-- безопасный рендер пользовательских данных.
+- Лента постов в обратной хронологии.
+- Превью первого `paragraph` и первого медиа-блока.
+- Инлайн-лайк на карточке поста.
+- Превью последних комментариев:
+  - desktop: до 2,
+  - mobile: до 1.
+- На странице поста:
+  - полный рендер блоков;
+  - древовидные комментарии;
+  - ответ на комментарий (`parent_id`);
+  - сворачивание длинных комментариев.
 
-1. Админ-панель `/admin`
+### Админка
 
-- логин через `ADMIN_SECRET`;
-- хранение сессии в `HttpOnly` cookie;
-- загрузка файлов в `/uploads`;
-- конструктор блоков поста;
-- live preview перед публикацией;
-- публикация поста через `POST /posts`.
+- Логин по `ADMIN_SECRET`.
+- Cookie-сессия (`admin_session`, `HttpOnly`, `SameSite=Lax`, `Secure` только в `NODE_ENV=production`).
+- Загрузка файла (`POST /upload`, multipart).
+- Визуальный конструктор блоков поста.
+- Live preview поста.
+- Публикация поста.
+- Удаление постов.
+- Удаление комментариев (рекурсивно удаляется ветка ответов).
 
-1. Интернационализация и тема
+### UI/UX
 
-- RU/EN переключение интерфейса (`frontend/i18n.js`);
-- light/dark theme (`frontend/theme.js`);
-- состояние языка/темы хранится в `localStorage`.
+- RU/EN интерфейс (`frontend/i18n.js`).
+- Переключение темы light/dark (`frontend/theme.js`).
+- Глобальный аудио-плеер:
+  - общий playback state для всех аудио-блоков;
+  - мини-плеер;
+  - попытка построения waveform через Web Audio API;
+  - сохранение состояния в `sessionStorage`.
 
-## Технологический стек
+## Технологии
 
-- Backend: `Node.js`, `Express 5`, `better-sqlite3`, `multer`, `express-rate-limit`, `dotenv`
-- Frontend: `HTML`, `CSS`, `Vanilla JavaScript`
-- База данных: `SQLite` (`data/blog.db`)
-- Хранение файлов: локальная папка `uploads/`
+- Backend:
+  - `express@5`
+  - `better-sqlite3`
+  - `multer`
+  - `express-rate-limit`
+  - `dotenv`
+- Frontend:
+  - `HTML`, `CSS`, `Vanilla JS`
+- Database:
+  - `SQLite` (`data/blog.db`)
+- Media storage:
+  - локальная папка `uploads/`
 
 ## Структура репозитория
 
 ```text
 blog_proj/
   backend/
-    db.js            # работа с SQLite, schema init, seed
-    server.js        # HTTP API, auth, rate-limit, upload, static
+    db.js          # SQLite init/schema и простые DB-обертки
+    server.js      # API, auth, upload, rate-limits, статика
   frontend/
-    index.html       # лента
-    post.html        # страница поста
-    admin.html       # админ-панель
-    app.js           # клиентская логика ленты/поста
-    admin.js         # клиентская логика админки
-    i18n.js          # локализация RU/EN
-    theme.js         # тема light/dark
-    styles.css       # стили
+    index.html     # лента
+    post.html      # страница поста
+    admin.html     # админка
+    app.js         # общая клиентская логика + feed/post + аудио
+    admin.js       # клиентская логика админки
+    i18n.js        # RU/EN словари и перевод ошибок API
+    theme.js       # переключение темы
+    styles.css
   data/
-    blog.db          # SQLite БД (создается автоматически)
-  uploads/           # загруженные медиа и seed-файлы
-  .env.example
+    .gitkeep       # SQLite файл создается в runtime
+  uploads/
+    .gitkeep       # загруженные файлы (не коммитятся)
   package.json
+  package-lock.json
   README.md
-  README.legacy.md
-  SPEC.md
 ```
 
-## Быстрый старт (локально)
+## Требования
 
-### 1) Требования
+- Node.js 18+ (рекомендуется Node.js 20 LTS).
+- npm.
+- Права на запись в `data/` и `uploads/`.
 
-- Node.js 18+ (рекомендуется Node.js 20 LTS)
-- npm
-- Доступ на запись в `data/` и `uploads/`
+## Быстрый старт
 
-### 2) Установка
+### 1) Установка зависимостей
 
 ```bash
 npm install
 ```
 
-### 3) Подготовка окружения
+### 2) Создайте `.env` вручную
 
-PowerShell:
+В репозитории сейчас **нет** `.env.example`, поэтому создайте файл `.env` сами.
 
-```powershell
-Copy-Item .env.example .env
-```
-
-macOS/Linux:
-
-```bash
-cp .env.example .env
-```
-
-Отредактируйте `.env` и задайте надежный секрет:
+Минимальный вариант:
 
 ```env
 PORT=3000
-ADMIN_SECRET=your-very-strong-random-secret
+ADMIN_SECRET=replace-with-strong-secret
+NODE_ENV=development
 ```
 
-### 4) Запуск
+### 3) Запуск
 
-Development:
+Development (watch):
 
 ```bash
 npm run dev
 ```
 
-Production-like (без watch):
+Production-like:
 
 ```bash
 npm start
 ```
 
-После старта приложение доступно по адресу `http://localhost:3000` (или другому `PORT`).
+Сервер поднимется на `http://localhost:<PORT>`.
 
-### 5) Что происходит на первом запуске
+### 4) Что создается автоматически
 
-- создаются папки `data/` и `uploads/` (если отсутствуют);
-- создается SQLite БД `data/blog.db`;
-- создаются таблицы `posts`, `comments`, `like_events`, `admin_sessions`;
-- если таблица постов пустая, добавляются seed-посты и seed-медиа.
+При старте:
 
-## Конфигурация через .env
+- создаются каталоги `data/` и `uploads/` (если отсутствуют);
+- создается файл `data/blog.db` (если отсутствует);
+- создаются таблицы/индексы SQLite.
 
+Важно: в текущем коде **нет авто-seed** постов/комментариев.
 
-| Переменная                   | По умолчанию   | Назначение                                                |
-| ---------------------------- | -------------- | --------------------------------------------------------- |
-| `PORT`                       | `3000`         | Порт HTTP-сервера                                         |
-| `ADMIN_SECRET`               | `change-me`    | Секрет для входа в админку (обязательно сменить)          |
-| `NODE_ENV`                   | -              | При `production` сессионный cookie получает флаг `Secure` |
-| `ADMIN_SESSION_TTL_HOURS`    | `12`           | Время жизни админ-сессии                                  |
-| `ADMIN_SESSION_HASH_SALT`    | `ADMIN_SECRET` | Соль хеширования токенов сессии                           |
-| `ADMIN_LOGIN_RATE_LIMIT_MAX` | `6`            | Лимит попыток входа в админку за 15 минут с IP            |
-| `LIKE_COOLDOWN_SECONDS`      | `10`           | Кулдаун повторного лайка одного поста с IP                |
-| `LIKE_RATE_LIMIT_MAX`        | `20`           | Лимит запросов лайка за минуту с IP                       |
-| `LIKE_IP_HASH_SALT`          | `ADMIN_SECRET` | Соль хеширования IP для таблицы лайков                    |
+## Скрипты npm
 
+- `npm start` -> `node backend/server.js`
+- `npm run dev` -> `node --watch backend/server.js`
 
-Примечание: лимит комментариев (`3/мин/IP`) сейчас захардкожен в коде (`commentLimiter`).
+## Конфигурация `.env` (полная)
 
-## Как пользоваться продуктом
+Все числовые параметры читаются как положительные числа; невалидные значения откатываются к fallback.
 
-### Сценарий 1: посетитель сайта
+### Базовые
 
-1. Открыть `/` и просмотреть ленту.
-2. Нажать на карточку поста или ссылку открытия полной версии.
-3. На странице `/post.html?id=<id>`:
-  - прочитать полный контент,
-  - поставить лайк,
-  - оставить комментарий (имя опционально).
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `PORT` | `3000` | Порт HTTP-сервера |
+| `ADMIN_SECRET` | `change-me` | Секрет логина в админку |
+| `NODE_ENV` | `development` (если не задан) | Влияет на флаг `Secure` у cookie |
+| `TRUST_PROXY` | `false` | `app.set("trust proxy", ...)`; принимает `1/0`, `true/false`, `yes/no`, `on/off` |
 
-### Сценарий 2: администратор (публикация)
+### Ограничения тела запроса
 
-1. Открыть `/admin`.
-2. Войти с `ADMIN_SECRET`.
-3. Загрузить файл (кнопка upload).
-4. При необходимости вставить медиа-блок из последней загрузки.
-5. Собрать пост из блоков (абзацы, заголовки, цитаты, разделители, медиа).
-6. Проверить live preview.
-7. Нажать «Создать пост».
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `JSON_BODY_LIMIT` | `256kb` | `express.json({ limit })` |
+| `URLENCODED_BODY_LIMIT` | `64kb` | `express.urlencoded({ limit })` |
+| `URLENCODED_PARAMETER_LIMIT` | `100` | `parameterLimit` для URL-encoded форм |
 
-После успешной публикации новый пост появится в ленте.
+### Глобальный API rate limit
 
-## Модель данных и инициализация БД
+Применяется к префиксам: `/posts`, `/comments`, `/upload`, `/admin`.
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `GLOBAL_API_RATE_LIMIT_WINDOW_SECONDS` | `60` | Окно лимита |
+| `GLOBAL_API_RATE_LIMIT_MAX` | `240` | Макс. запросов на IP за окно |
+
+### Лайки
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `LIKE_COOLDOWN_SECONDS` | `10` | Минимальный интервал повторного лайка одного поста с одного IP |
+| `LIKE_RATE_LIMIT_MAX` | `20` | Лимит `POST /posts/:id/like` на IP за минуту |
+| `LIKE_IP_HASH_SALT` | `ADMIN_SECRET` | Соль для SHA-256 хеша IP в `like_events` |
+
+### Комментарии: валидация и антиспам
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `COMMENT_MAX_NAME_LENGTH` | `80` | Макс. длина имени |
+| `COMMENT_MAX_LENGTH` | `1000` | Макс. длина текста комментария |
+| `COMMENT_MAX_URL_COUNT` | `4` | Макс. число URL-маркеров (`http(s)://`, `www.`) |
+| `COMMENT_MAX_TOKEN_LENGTH` | `120` | Макс. длина одного whitespace-token |
+| `COMMENT_MAX_REPEATED_CHAR_RUN` | `18` | Повтор одного символа подряд |
+| `COMMENT_MAX_REPEATED_SYMBOL_RUN` | `10` | Повтор emoji/символа подряд (дополнительно ограничен `COMMENT_MAX_REPEATED_CHAR_RUN`) |
+| `COMMENT_MAX_REPEATED_TOKEN_RUN` | `12` | Повтор одного token подряд |
+| `COMMENT_RANDOM_TEXT_MIN_LENGTH` | `120` | Порог длины для проверки на random/automated text |
+| `COMMENT_RANDOM_TOKEN_MIN_LENGTH` | `12` | Мин. длина token для random-детектора |
+| `COMMENT_RANDOM_TOKEN_MIN_COUNT` | `4` | Мин. число suspicious-token для random-детектора |
+| `COMMENT_RANDOM_TOKEN_MIN_SHARE` | `0.5` | Доля suspicious-token для random-детектора |
+| `COMMENT_LOW_TOKEN_DIVERSITY_MIN_TOKEN_COUNT` | `24` | Нижний порог token-count для low-diversity проверки |
+| `COMMENT_LOW_TOKEN_DIVERSITY_CONTENT_MIN_LENGTH` | `180` | Нижний порог длины текста для low-diversity проверки |
+| `COMMENT_LOW_TOKEN_DIVERSITY_THRESHOLD` | `0.14` | Порог разнообразия token |
+
+### Комментарии: лимиты частоты
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `COMMENT_ATTEMPT_RATE_LIMIT_WINDOW_SECONDS` | `60` | Окно express-rate-limit на POST `/comments` |
+| `COMMENT_ATTEMPT_RATE_LIMIT_MAX` | `40` | Макс. попыток комментариев на IP за окно |
+| `COMMENT_COOLDOWN_SECONDS` | `12` | Персональный cooldown между успешными комментариями с IP |
+| `COMMENT_BURST_WINDOW_SECONDS` | `60` | Окно burst-контроля с IP |
+| `COMMENT_BURST_MAX` | `6` | Макс. успешных комментариев с IP за burst-окно |
+| `COMMENT_DUPLICATE_WINDOW_SECONDS` | `180` | Блок одинакового комментария (post + normalized content) с IP |
+| `COMMENT_POST_RATE_LIMIT_WINDOW_SECONDS` | `120` | Окно общего лимита на один пост |
+| `COMMENT_POST_RATE_LIMIT_MAX` | `30` | Макс. комментариев к одному посту за окно |
+| `COMMENT_GLOBAL_RATE_LIMIT_WINDOW_SECONDS` | `60` | Глобальное окно по всем постам |
+| `COMMENT_GLOBAL_RATE_LIMIT_MAX` | `120` | Макс. комментариев глобально за окно |
+
+### Посты
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `POST_MAX_BLOCKS` | `60` | Макс. число блоков в посте |
+| `POST_MAX_TEXT_LENGTH` | `4000` | Макс. длина `text` для paragraph/quote/heading |
+| `POST_MAX_MEDIA_TEXT_LENGTH` | `500` | Макс. длина `name`, `alt`, `caption` в media блоке |
+
+### Админка и сессии
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `ADMIN_POST_RATE_LIMIT_WINDOW_SECONDS` | `300` | Окно лимита создания постов |
+| `ADMIN_POST_RATE_LIMIT_MAX` | `12` | Макс. `POST /posts` за окно |
+| `ADMIN_SESSION_TTL_HOURS` | `12` | TTL cookie-сессии |
+| `ADMIN_SESSION_HASH_SALT` | `ADMIN_SECRET` | Секрет HMAC-подписи payload сессии |
+| `ADMIN_SESSION_CLOCK_SKEW_SECONDS` | `60` | Допуск по времени для `iat/exp` |
+| `ADMIN_LOGIN_RATE_LIMIT_MAX` | `6` | Лимит логинов (`POST /admin/login`) за 15 минут на IP |
+
+## Аутентификация админа: как устроено сейчас
+
+### Механика
+
+- При логине сервер проверяет `secret` через `crypto.timingSafeEqual`.
+- Генерируется payload сессии:
+  - `v`, `iat`, `exp`, `nonce`.
+- Payload кодируется в Base64URL и подписывается HMAC-SHA256.
+- Клиент получает cookie `admin_session=<payload>.<signature>`.
+- Для приватных эндпоинтов сервер валидирует подпись и сроки (`iat/exp`).
+
+### Важный нюанс текущей реализации
+
+В БД есть таблица `admin_sessions`, но в текущей версии:
+
+- `deleteExpiredAdminSessions()` - заглушка (`return`);
+- `deleteAdminSessionByToken()` - заглушка (`return`);
+- сервер не хранит/не проверяет active sessions в БД.
+
+Итого: logout очищает cookie у клиента, но сервер-side revoke токена сейчас не реализован.
+
+## SQLite: схема данных
 
 ### Таблицы
 
 `posts`
 
-- `id INTEGER PK AUTOINCREMENT`
+- `id INTEGER PRIMARY KEY AUTOINCREMENT`
 - `title TEXT NOT NULL`
 - `blocks_json TEXT NOT NULL`
 - `likes_count INTEGER NOT NULL DEFAULT 0`
-- `created_at TEXT NOT NULL`
+- `created_at TEXT NOT NULL DEFAULT datetime('now')`
 
 `comments`
 
-- `id INTEGER PK AUTOINCREMENT`
-- `post_id INTEGER NOT NULL` (FK -> `posts.id`, `ON DELETE CASCADE`)
+- `id INTEGER PRIMARY KEY AUTOINCREMENT`
+- `post_id INTEGER NOT NULL` -> FK `posts(id)` `ON DELETE CASCADE`
+- `parent_id INTEGER NULL` -> FK `comments(id)` `ON DELETE CASCADE`
 - `name TEXT NULL`
 - `content TEXT NOT NULL`
-- `created_at TEXT NOT NULL`
+- `created_at TEXT NOT NULL DEFAULT datetime('now')`
 
 `like_events`
 
-- `id INTEGER PK AUTOINCREMENT`
-- `post_id INTEGER NOT NULL` (FK -> `posts.id`, `ON DELETE CASCADE`)
+- `id INTEGER PRIMARY KEY AUTOINCREMENT`
+- `post_id INTEGER NOT NULL` -> FK `posts(id)` `ON DELETE CASCADE`
 - `ip_hash TEXT NOT NULL`
-- `created_at TEXT NOT NULL`
+- `created_at TEXT NOT NULL DEFAULT datetime('now')`
 
 `admin_sessions`
 
-- `id INTEGER PK AUTOINCREMENT`
+- `id INTEGER PRIMARY KEY AUTOINCREMENT`
 - `token_hash TEXT NOT NULL UNIQUE`
-- `created_at TEXT NOT NULL`
+- `created_at TEXT NOT NULL DEFAULT datetime('now')`
 - `expires_at TEXT NOT NULL`
 
-### Важный нюанс миграции
+### Индексы
 
-`initDb()` содержит «мягкую миграцию» старого формата таблицы `posts`: если не найден набор обязательных колонок, старые `posts/comments/like_events` удаляются и схема пересоздается.
+- `idx_comments_post_parent (post_id, parent_id, id)`
+- `idx_like_events_post_ip_created (post_id, ip_hash, created_at)`
+- `idx_admin_sessions_expires_at (expires_at)`
 
-Для production это означает: перед обновлениями обязательно делайте бэкап `data/blog.db`.
+### Инициализация и миграционные нюансы
 
-### Seed-данные
+- `PRAGMA foreign_keys = ON`.
+- Если таблица `posts` существует, но в ней нет обязательных колонок
+  (`id`, `title`, `blocks_json`, `created_at`), то `posts/comments/like_events` дропаются и создаются заново.
+- Отдельно выполняются "мягкие" `ALTER TABLE` для добавления:
+  - `posts.likes_count`,
+  - `comments.parent_id`.
 
-Если постов нет, при запуске добавляются:
+## Формат поста (`blocks`)
 
-- 3 seed-поста,
-- seed-комментарии,
-- файлы в `uploads/`:
-  - `seed-sky.svg`
-  - `seed-loop.gif`
-  - `seed-guide.md`
-  - `seed-tone.wav`
+Допустимые типы блоков:
 
-## Формат постов и блоков
+- `paragraph` -> `{ type: "paragraph", text }`
+- `heading` -> `{ type: "heading", level: 1|2|3, text }`
+- `quote` -> `{ type: "quote", text }`
+- `divider` -> `{ type: "divider" }`
+- `media` -> `{ type: "media", mediaKind, src, name?, alt?, caption? }`
 
-### Поддерживаемые типы блоков
+`mediaKind`:
 
-- `paragraph`
-- `heading` (`level` только `1|2|3`)
-- `quote`
-- `divider`
-- `media` (`mediaKind`: `image|gif|video|audio|file`)
+- `image`, `gif`, `video`, `audio`, `file`
 
-### Валидация media-блока
+Ключевые ограничения:
 
-- `src` обязан быть локальным путем вида `/uploads/...`;
-- `name`, `alt`, `caption` - опциональные строки;
-- внешние URL для `src` запрещены.
+- `title` до 160 символов.
+- `blocks` - массив от 1 до `POST_MAX_BLOCKS` (по умолчанию 60).
+- `text` для paragraph/quote/heading до `POST_MAX_TEXT_LENGTH` (по умолчанию 4000).
+- Для `media`:
+  - `src` строго локальный `/uploads/...`;
+  - `name/alt/caption` по `POST_MAX_MEDIA_TEXT_LENGTH` (по умолчанию 500).
 
-### Пример payload для публикации
+## HTTP API (актуально)
+
+Базовый адрес: `http://localhost:<PORT>`.
+
+### 1) Admin auth
+
+#### `POST /admin/login`
+
+Body:
+
+```json
+{ "secret": "..." }
+```
+
+Success `200`:
 
 ```json
 {
-  "title": "Мой первый пост",
-  "blocks": [
-    { "type": "heading", "level": 2, "text": "Вступление" },
-    { "type": "paragraph", "text": "Текст первого абзаца." },
-    { "type": "quote", "text": "Короткая цитата." },
-    { "type": "divider" },
-    {
-      "type": "media",
-      "mediaKind": "image",
-      "src": "/uploads/1730000000-example.png",
-      "alt": "Описание изображения",
-      "caption": "Подпись"
-    }
-  ]
+  "ok": true,
+  "authenticated": true,
+  "expires_in_seconds": 43200,
+  "created_at": "2026-03-12 00:00:00",
+  "expires_at": "2026-03-12 12:00:00"
 }
 ```
 
-## HTTP API
+Ошибки:
 
-Ниже перечислены реальные endpoint'ы текущей версии.
+- `400` - `Admin secret is required.`
+- `401` - `Invalid admin secret.`
+- `429` - при rate-limit логина или глобальном API лимите
 
-### Админ-аутентификация
+#### `POST /admin/logout`
 
-`POST /admin/login`
+Success `200`:
 
-- body: `{ "secret": "..." }`
-- при успехе: `200`, `Set-Cookie: admin_session=...; HttpOnly; SameSite=Lax`
-- ограничения: rate limit `ADMIN_LOGIN_RATE_LIMIT_MAX` за 15 минут с IP
+```json
+{ "ok": true, "authenticated": false }
+```
 
-`POST /admin/logout`
+#### `GET /admin/session`
 
-- инвалидирует текущую сессию
-- ответ: `{ "ok": true, "authenticated": false }`
+Success:
 
-`GET /admin/session`
+- не авторизован:
 
-- проверка статуса сессии
-- ответ: `{ "authenticated": true|false, ... }`
+```json
+{ "authenticated": false }
+```
 
-### Посты
+- авторизован:
 
-`GET /posts?limit=10&page=1`
+```json
+{
+  "authenticated": true,
+  "created_at": "2026-03-12 00:00:00",
+  "expires_at": "2026-03-12 12:00:00"
+}
+```
 
-- `limit`: 1..50 (default 10)
-- `page`: >=1
-- возвращает список с `preview_text` и `preview_media`
+### 2) Posts
 
-`GET /posts/:id`
+#### `GET /posts?limit=10&page=1`
 
-- полный пост с распарсенными `blocks`
+- `limit`: от 1 до 50 (default 10)
+- `page`: >= 1
 
-`POST /posts` (только админ-сессия)
+Success `200`:
 
-- body: `{ title, blocks }`
-- валидирует структуру блоков
-- при успехе: `201` + созданный пост
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "Post title",
+      "likes": 3,
+      "created_at": "2026-03-11 16:05:55",
+      "preview_text": "First paragraph text...",
+      "preview_media": {
+        "mediaKind": "image",
+        "src": "/uploads/...",
+        "alt": "",
+        "caption": "",
+        "name": ""
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "totalPages": 1
+  }
+}
+```
 
-### Лайки
+#### `GET /posts/:id`
 
-`GET /posts/:id/likes`
+Success `200`:
 
-- получить текущее количество лайков
+```json
+{
+  "id": 1,
+  "title": "Post title",
+  "likes": 3,
+  "created_at": "2026-03-11 16:05:55",
+  "blocks": [ ... ]
+}
+```
 
-`POST /posts/:id/like`
+Ошибки:
 
-- публичный endpoint
-- ограничения:
-  - rate limit `LIKE_RATE_LIMIT_MAX`/мин/IP,
-  - cooldown `LIKE_COOLDOWN_SECONDS` между лайками одного поста с одного IP
-- при успехе: `{ success: true, postId, likes }`
+- `404` - `Post not found.`
 
-### Комментарии
+#### `POST /posts` (admin only)
 
-`GET /comments/:post_id?limit=...&order=asc|desc`
+Body:
 
-- `order`: `asc` (по умолчанию) или `desc`
-- `limit`: опционально, максимум `20`
+```json
+{
+  "title": "My post",
+  "blocks": [{ "type": "paragraph", "text": "Hello" }]
+}
+```
 
-`POST /comments`
+Success `201` -> возвращает созданный пост.
 
-- body: `{ post_id, name?, content, website? }`
-- `website` - honeypot (если заполнен, запрос отклоняется)
-- rate limit: `3` комментария/мин/IP
+Ошибки:
 
-### Загрузка файлов
+- `401` - `Admin login required.`
+- `400` - `Invalid post payload.` + `details[]`
+- `429` - превышен `ADMIN_POST_RATE_LIMIT_*` или глобальный API лимит
 
-`POST /upload` (только админ-сессия)
+#### `DELETE /posts/:id` (admin only)
+
+Success `200`:
+
+```json
+{ "ok": true, "id": 1 }
+```
+
+Ошибки:
+
+- `401` - `Admin login required.`
+- `400` - `Invalid post id.`
+- `404` - `Post not found.`
+
+### 3) Comments
+
+#### `GET /comments/:post_id?order=asc|desc&limit=N`
+
+- `order`: `asc` (default) или `desc`
+- `limit`: опционально, максимум 20
+
+Возвращает плоский массив комментариев с `parent_id`; дерево строится на фронте.
+
+#### `POST /comments`
+
+Требует `Content-Type: application/json`.
+
+Body:
+
+```json
+{
+  "post_id": 1,
+  "parent_id": 10,
+  "name": "User",
+  "content": "Text",
+  "website": ""
+}
+```
+
+Поля:
+
+- `post_id` - обязателен, положительный int.
+- `parent_id` - опционален, если задан, должен существовать и принадлежать тому же `post_id`.
+- `name` - опционально.
+- `content` - обязателен, проходит антиспам/валидацию.
+- `website` - honeypot (должен быть пустым).
+
+Success `201`:
+
+```json
+{ "ok": true }
+```
+
+Основные ошибки:
+
+- `415` - `Unsupported content type. Please send JSON.`
+- `400` - невалидные поля / антиспам-проверки / honeypot
+- `404` - пост или родительский комментарий не найден
+- `429` - один из rate-limit/duplicate/cooldown барьеров
+
+#### `DELETE /comments/:id` (admin only)
+
+Рекурсивно удаляет комментарий и все дочерние ответы через `WITH RECURSIVE`.
+
+Success `200`:
+
+```json
+{ "ok": true, "id": 15, "post_id": 1 }
+```
+
+### 4) Likes
+
+#### `GET /posts/:id/likes`
+
+Success:
+
+```json
+{ "postId": 1, "likes": 5 }
+```
+
+#### `POST /posts/:id/like`
+
+Success:
+
+```json
+{ "success": true, "postId": 1, "likes": 6 }
+```
+
+Ошибки:
+
+- `400` - `Invalid post id.`
+- `404` - `Post not found.`
+- `429` - rate-limit/cooldown
+
+Дополнительно:
+
+- после лайка сервер удаляет записи `like_events` старше 14 дней.
+
+### 5) Upload
+
+#### `POST /upload` (admin only)
 
 - `multipart/form-data`
-- field name: `file`
-- max size: `25MB`
-- пустые файлы запрещены
-- возвращает:
+- поле файла: `file`
+- лимит размера: 25 MB
+
+Success `201`:
 
 ```json
 {
-  "url": "/uploads/1772987164317-59f60f746d5f5d09.gif",
-  "originalName": "loop.gif",
-  "storedName": "1772987164317-59f60f746d5f5d09.gif",
-  "mediaKind": "gif"
+  "url": "/uploads/<stored-filename>",
+  "originalName": "my-file.png",
+  "storedName": "1772989610340-168c44a1e4cc8288.png",
+  "mediaKind": "image"
 }
 ```
 
-### Пример API-сессии (curl)
+Ошибки:
+
+- `401` - `Admin login required.`
+- `400` - `file is required.` / `Empty file uploads are not allowed.`
+- `413` - `File is too large. Max size is 25MB.`
+
+## Пример API-сценария через curl
 
 ```bash
-# 1) Логин админа и сохранение cookie
+# 1) Логин и сохранение cookie
 curl -i -c cookies.txt \
   -H "Content-Type: application/json" \
-  -d '{"secret":"your-very-strong-random-secret"}' \
+  -d "{\"secret\":\"replace-with-strong-secret\"}" \
   http://localhost:3000/admin/login
 
 # 2) Загрузка файла
 curl -i -b cookies.txt \
-  -F "file=@./uploads/seed-guide.md" \
+  -F "file=@./some-local-file.png" \
   http://localhost:3000/upload
 
-# 3) Публикация поста
+# 3) Создание поста
 curl -i -b cookies.txt \
   -H "Content-Type: application/json" \
-  -d '{"title":"API post","blocks":[{"type":"paragraph","text":"Hello from API"}]}' \
+  -d "{\"title\":\"API post\",\"blocks\":[{\"type\":\"paragraph\",\"text\":\"Hello\"}]}" \
   http://localhost:3000/posts
 ```
 
-## Безопасность и ограничения
+## Поведение фронтенда
 
-### Что уже реализовано
+### `frontend/app.js`
 
-- Админ-маршруты защищены cookie-сессией.
-- Сессионный токен хранится в БД в виде хеша (`token_hash`).
-- `timingSafeEqual` для сравнения админ-секрета.
-- `HttpOnly` cookie + `SameSite=Lax`.
-- `Secure` cookie включается при `NODE_ENV=production`.
-- Ограничения частоты запросов:
-  - логин админа,
-  - лайки,
-  - комментарии.
-- Honeypot-поле для антиспама комментариев.
-- Валидация структуры блоков и медиа-путей.
-- Рендер контента на фронте через безопасные DOM API (`textContent`, `createElement`).
+- Общая логика для `feed` и `post` страниц.
+- Проверка админ-сессии для отображения кнопок удаления и logout в topbar.
+- Лайки через `POST /posts/:id/like`.
+- Комментарии:
+  - создание комментариев;
+  - ответы с `parent_id`;
+  - построение дерева из плоского списка.
+- Отрисовка блоков поста через DOM API без вставки HTML от пользователя.
+- Аудио-плеер:
+  - один глобальный `Audio()` объект;
+  - синхронизация между карточками;
+  - мини-плеер;
+  - lazy waveform.
 
-### Что важно усилить в production
+### `frontend/admin.js`
 
-1. Установить длинный случайный `ADMIN_SECRET`.
-2. Всегда запускать с `NODE_ENV=production` за HTTPS.
-3. Закрыть прямой доступ к node-порту извне (доступ только через reverse proxy).
-4. Настроить `X-Forwarded-For` на прокси так, чтобы клиент не мог подменить IP (пример ниже).
-5. Регулярно делать бэкапы `data/blog.db` и `uploads/`.
+- Только для страницы `/admin`.
+- Логин/логаут.
+- Upload.
+- Блочный редактор черновика:
+  - добавить/удалить/переместить блоки;
+  - редактировать поля блока;
+  - формировать JSON.
+- Live preview:
+  - переиспользует функции `normalizeClientBlock` и `renderPostBlock` из `app.js`.
+- Публикация поста через `POST /posts`.
 
-## Деплой в production
+### `frontend/i18n.js`
 
-Ниже практичный сценарий для Linux (Ubuntu) + `pm2` + `nginx` + HTTPS.
+- Словари `ru` и `en`.
+- Сохранение языка в `localStorage` (`stereoDamageLanguage`).
+- Переводит многие backend error strings в RU.
+- При смене языка страница перезагружается.
 
-### 1) Подготовка сервера
+### `frontend/theme.js`
 
-```bash
-sudo apt update
-sudo apt install -y nginx
+- Тема light/dark.
+- Сохранение выбора в `localStorage` (`stereoDamageTheme`).
+- Если выбор не сохранен, берется системная тема (`prefers-color-scheme`).
 
-# Node.js ставьте LTS-версии (например, 20.x)
-# способ установки зависит от вашей политики (nvm, distro packages, NodeSource)
-```
+## Безопасность и ограничения (фактически реализованное)
 
-### 2) Развернуть проект
+### Реализовано
 
-```bash
-# пример пути
-sudo mkdir -p /var/www/stereodamage
-sudo chown -R $USER:$USER /var/www/stereodamage
+- `x-powered-by` отключен.
+- Заголовки:
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `Referrer-Policy: same-origin`
+- Cookie админа `HttpOnly`, `SameSite=Lax`.
+- `Secure` cookie в `production`.
+- Валидация структуры постов и локальных media path (`/uploads/...`).
+- Валидация и многоступенчатая антиспам-фильтрация комментариев.
+- Несколько уровней rate-limit (global, login, likes, comments, post-create).
 
-cd /var/www/stereodamage
-# git clone <repo-url> .
-npm install
-cp .env.example .env
-```
+### Ограничения текущей версии
 
-Заполните `.env` минимум так:
+- Нет пользовательских аккаунтов и ролей.
+- Нет редактирования постов (только create/delete).
+- Logout не делает сервер-side revoke токена (см. нюанс про `admin_sessions`).
+- Часть антиспам-состояния комментариев хранится in-memory `Map`:
+  - сбрасывается при рестарте процесса;
+  - не шарится между инстансами при горизонтальном масштабировании.
+- Нет встроенных тестов.
 
-```env
-PORT=3000
-NODE_ENV=production
-ADMIN_SECRET=<LONG_RANDOM_SECRET>
-```
+## Продакшен-заметки
 
-### 3) Запуск через PM2
+### Минимальные рекомендации
 
-```bash
-npm i -g pm2
-pm2 start backend/server.js --name stereodamage
-pm2 save
-pm2 startup
-```
+1. Обязательно задайте сильный `ADMIN_SECRET`.
+2. Используйте HTTPS и `NODE_ENV=production`.
+3. При reverse proxy настройте `TRUST_PROXY=true` и корректный `X-Forwarded-For`.
+4. Ограничьте доступ к node-порту извне.
+5. Делайте регулярные бэкапы `data/blog.db`, `uploads/`, `.env`.
 
-Полезные команды:
+### Поведение с дефолтным секретом
 
-```bash
-pm2 status
-pm2 logs stereodamage
-pm2 restart stereodamage
-```
+- Если `ADMIN_SECRET=change-me` и `NODE_ENV=production`, сервер завершится с ошибкой старта.
+- В development только пишет warning в лог.
 
-### 4) Reverse proxy (nginx)
+## Бэкап и восстановление
 
-Создайте `/etc/nginx/sites-available/stereodamage.conf`:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.example;
-
-    client_max_body_size 25m;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-
-        # ВАЖНО: перезаписываем X-Forwarded-For единичным IP,
-        # чтобы клиент не присылал цепочку со spoofed первым адресом.
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
-
-Активируйте конфиг:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/stereodamage.conf /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 5) HTTPS (Let's Encrypt)
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.example
-```
-
-Проверьте автопродление:
-
-```bash
-sudo certbot renew --dry-run
-```
-
-### 6) Firewall (пример)
-
-```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw enable
-```
-
-## Операционка: обновления, бэкапы, восстановление
-
-### Обновление приложения
-
-```bash
-cd /var/www/stereodamage
-# git pull
-npm install
-pm2 restart stereodamage
-```
-
-### Бэкап
-
-Минимальный набор для восстановления:
+### Что бэкапить
 
 - `data/blog.db`
-- папка `uploads/`
-- файл `.env`
+- `uploads/`
+- `.env`
 
-Пример:
+### Пример
 
 ```bash
 tar -czf backup-$(date +%F).tar.gz data/blog.db uploads .env
@@ -560,69 +723,49 @@ tar -czf backup-$(date +%F).tar.gz data/blog.db uploads .env
 
 ### Восстановление
 
-1. Остановить процесс (`pm2 stop stereodamage`).
-2. Восстановить `data/blog.db`, `uploads/`, `.env`.
-3. Запустить снова (`pm2 start stereodamage` или `pm2 restart stereodamage`).
+1. Остановить процесс.
+2. Восстановить `blog.db`, `uploads`, `.env`.
+3. Запустить процесс снова.
 
-## Smoke-check после запуска
+## Быстрый smoke-check
 
-Базовый чек-лист:
+1. `GET /` -> открывается лента.
+2. `GET /admin` -> форма логина.
+3. `POST /admin/login` с корректным секретом -> `200` и cookie.
+4. `POST /upload` (с cookie) -> `201`.
+5. `POST /posts` (с cookie) -> `201`.
+6. `GET /posts` -> новый пост в выдаче.
+7. `POST /comments` -> `201`.
+8. `POST /posts/:id/like` -> счетчик растет, повторный быстрый лайк -> `429`.
 
-1. `GET /` отдает страницу ленты (`200`).
-2. `GET /admin` открывает форму входа.
-3. Логин с корректным `ADMIN_SECRET` успешен.
-4. `POST /upload` после логина возвращает `201` и `url`.
-5. `POST /posts` после логина создает пост (`201`).
-6. Новый пост виден в `/posts` и на главной.
-7. Публичный `POST /comments` работает.
-8. `POST /posts/:id/like` увеличивает счетчик и применяет cooldown.
+## Частые проблемы
 
-## Troubleshooting
-
-### 1) `401 Admin login required.` на `/upload` или `/posts`
+### `401 Admin login required.`
 
 Причина: нет валидной cookie-сессии.
 
-Что проверить:
+Проверьте:
 
-- вызывался ли `POST /admin/login`;
-- отправляются ли cookie (для fetch установлен `credentials: "same-origin"`, для curl нужен `-b cookies.txt`);
-- не истекла ли сессия (`ADMIN_SESSION_TTL_HOURS`).
+- был ли `POST /admin/login`;
+- отправляются ли cookie в запросе;
+- не истек ли TTL сессии.
 
-### 2) `401 Invalid admin secret.` при логине
+### `415 Unsupported content type. Please send JSON.`
 
-- проверьте `ADMIN_SECRET` в `.env`;
-- после изменения `.env` перезапустите процесс.
+Причина: `POST /comments` принимает только JSON.
 
-### 3) `413 File is too large.`
+### `413 File is too large. Max size is 25MB.`
 
-- лимит backend = 25MB;
-- если используется nginx, проверьте `client_max_body_size` (должен быть >= 25m).
+Причина: превышен лимит upload backend (и/или лимит на прокси).
 
-### 4) `429` на лайках или комментариях
+### Лайки/комментарии получают `429`
 
-Нормальная работа rate limit/cooldown.
+Сработал один из rate-limit/cooldown механизмов.
 
-- лайки: общий лимит + кулдаун для одного поста;
-- комментарии: 3/мин/IP.
+## Важные отличия от старой документации
 
-### 5) После очистки БД снова появились seed-посты
-
-Это ожидаемо: если таблица `posts` пуста, `seedDb()` добавляет seed-контент при старте.
-
-### 6) Неправильные IP в логике лайков/rate limit за прокси
-
-Проверьте настройку `X-Forwarded-For` на reverse proxy. Для текущей реализации безопаснее перезаписывать заголовок единичным `$remote_addr`.
-
-## Известные ограничения MVP
-
-- Нет CRUD для постов через API (редактирование/удаление не реализованы).
-- Нет учетных записей пользователей и ролей.
-- Антиабуз лайков/комментариев опирается на IP (может обходиться через VPN/прокси).
-- Нет встроенной панели модерации комментариев.
-- Лимит комментариев не вынесен в env-переменную.
-- Авто-seed контента при пустой БД не отключается конфигом.
-
-## Лицензия и статус
-
-Текущий код и документация ориентированы на MVP/личный блог с небольшим трафиком.
+- В репозитории сейчас нет `.env.example`.
+- В коде сейчас нет авто-seed постов в пустую БД.
+- Реализованы `DELETE /posts/:id` и `DELETE /comments/:id`.
+- Комментарии поддерживают `parent_id` (древовидные ответы).
+- Защита комментариев намного шире, чем "простой лимит 3/мин".
