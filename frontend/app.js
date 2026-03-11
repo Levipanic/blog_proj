@@ -1926,12 +1926,68 @@ async function initPostPage() {
     commentStatusEl.textContent = message;
   }
 
+  async function submitComment(payload, statusElement, successKey, successFallback) {
+    if (statusElement) {
+      statusElement.textContent = t("post.commentSending", null, "Sending...");
+      statusElement.classList.remove("status-ok", "status-error");
+    }
+
+    try {
+      await fetchJson("/comments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (statusElement) {
+        statusElement.textContent = t(successKey, null, successFallback);
+        statusElement.classList.remove("status-error");
+        statusElement.classList.add("status-ok");
+      }
+      return true;
+    } catch (error) {
+      if (statusElement) {
+        statusElement.textContent = translateErrorMessage(
+          error,
+          "post.commentError",
+          "Failed to post comment."
+        );
+        statusElement.classList.remove("status-ok");
+        statusElement.classList.add("status-error");
+      }
+      return false;
+    }
+  }
+
+  async function handleReplySubmit(replyPayload, replyStatusEl) {
+    const payload = {
+      post_id: postId,
+      parent_id: replyPayload.parent_id,
+      name: replyPayload.name,
+      content: replyPayload.content,
+      website: replyPayload.website
+    };
+    const posted = await submitComment(
+      payload,
+      replyStatusEl,
+      "post.replyPosted",
+      "Reply posted."
+    );
+    if (posted) {
+      await refreshComments();
+    }
+    return posted;
+  }
+
   async function refreshComments() {
     const updatedComments = await fetchJson("/comments/" + encodeURIComponent(postId));
     renderComments(commentListEl, updatedComments, {
       adminAuthenticated,
       onCommentDeleted: refreshComments,
-      onDeleteError: showDeleteError
+      onDeleteError: showDeleteError,
+      onReplySubmit: handleReplySubmit
     });
   }
 
@@ -1958,7 +2014,8 @@ async function initPostPage() {
   renderComments(commentListEl, comments, {
     adminAuthenticated,
     onCommentDeleted: refreshComments,
-    onDeleteError: showDeleteError
+    onDeleteError: showDeleteError,
+    onReplySubmit: handleReplySubmit
   });
   postStatusEl.textContent = "";
   document.title = t(
@@ -1971,7 +2028,6 @@ async function initPostPage() {
 
   commentFormEl.addEventListener("submit", async (event) => {
     event.preventDefault();
-    commentStatusEl.textContent = t("post.commentSending", null, "Sending...");
 
     const payload = {
       post_id: postId,
@@ -1980,24 +2036,15 @@ async function initPostPage() {
       website: String(commentFormEl.elements.website.value || "").trim()
     };
 
-    try {
-      await fetchJson("/comments", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-
+    const posted = await submitComment(
+      payload,
+      commentStatusEl,
+      "post.commentPosted",
+      "Comment posted."
+    );
+    if (posted) {
       commentFormEl.reset();
-      commentStatusEl.textContent = t("post.commentPosted", null, "Comment posted.");
       await refreshComments();
-    } catch (error) {
-      commentStatusEl.textContent = translateErrorMessage(
-        error,
-        "post.commentError",
-        "Failed to post comment."
-      );
     }
   });
 }
@@ -2182,13 +2229,247 @@ function renderMediaBlock(block) {
   return null;
 }
 
-function renderComments(commentListEl, comments, options) {
+function normalizeClientComment(rawComment) {
+  if (!rawComment || typeof rawComment !== "object" || Array.isArray(rawComment)) {
+    return null;
+  }
+
+  const id = Number(rawComment.id);
+  const postId = Number(rawComment.post_id);
+  if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(postId) || postId <= 0) {
+    return null;
+  }
+
+  const hasParentId =
+    rawComment.parent_id !== undefined &&
+    rawComment.parent_id !== null &&
+    String(rawComment.parent_id).trim() !== "";
+  const parsedParentId = Number(rawComment.parent_id);
+  const parentId = hasParentId && Number.isInteger(parsedParentId) && parsedParentId > 0 ? parsedParentId : null;
+
+  return {
+    id,
+    post_id: postId,
+    parent_id: parentId,
+    name: asText(rawComment.name),
+    content: asText(rawComment.content),
+    created_at: asText(rawComment.created_at),
+    replies: []
+  };
+}
+
+function compareCommentsByDate(a, b) {
+  const byDate = toMillis(a.created_at) - toMillis(b.created_at);
+  if (byDate !== 0) return byDate;
+  return Number(a.id || 0) - Number(b.id || 0);
+}
+
+function buildCommentTree(comments) {
+  if (!Array.isArray(comments)) {
+    return [];
+  }
+
+  const nodes = [];
+  const nodesById = new Map();
+
+  comments.forEach((rawComment) => {
+    const node = normalizeClientComment(rawComment);
+    if (!node) return;
+    nodes.push(node);
+    nodesById.set(node.id, node);
+  });
+
+  const roots = [];
+
+  nodes.forEach((node) => {
+    if (node.parent_id && node.parent_id !== node.id) {
+      const parent = nodesById.get(node.parent_id);
+      if (parent && parent.post_id === node.post_id) {
+        parent.replies.push(node);
+        return;
+      }
+    }
+    roots.push(node);
+  });
+
+  function sortTree(treeNodes) {
+    treeNodes.sort(compareCommentsByDate);
+    treeNodes.forEach((treeNode) => {
+      if (treeNode.replies.length > 0) {
+        sortTree(treeNode.replies);
+      }
+    });
+  }
+
+  sortTree(roots);
+  return roots;
+}
+
+function renderCommentNode(commentNode, depth, options) {
   const renderOptions = options && typeof options === "object" ? options : {};
   const adminAuthenticated = Boolean(renderOptions.adminAuthenticated);
+  const canReply = typeof renderOptions.onReplySubmit === "function";
+
+  const li = document.createElement("li");
+  li.className = "comment-card";
+  if (depth > 0) {
+    li.classList.add("comment-card-nested");
+  }
+
+  const head = document.createElement("div");
+  head.className = "comment-head";
+
+  const meta = document.createElement("p");
+  meta.className = "meta-line";
+  const displayName = commentNode.name || t("common.anonymous", null, "Anonymous");
+  meta.textContent = displayName + " | " + formatDate(commentNode.created_at);
+  head.appendChild(meta);
+
+  const headActions = document.createElement("div");
+  headActions.className = "comment-head-actions";
+
+  if (adminAuthenticated) {
+    headActions.appendChild(
+      createCommentDeleteButton(
+        commentNode.id,
+        renderOptions.onCommentDeleted,
+        renderOptions.onDeleteError
+      )
+    );
+  }
+
+  if (headActions.childElementCount > 0) {
+    head.appendChild(headActions);
+  }
+
+  const body = document.createElement("p");
+  body.className = "comment-body";
+  body.textContent = commentNode.content;
+
+  li.appendChild(head);
+  li.appendChild(body);
+
+  if (canReply) {
+    const controls = document.createElement("div");
+    controls.className = "comment-controls";
+
+    const replyToggleButton = document.createElement("button");
+    replyToggleButton.type = "button";
+    replyToggleButton.className = "comment-reply-button";
+    replyToggleButton.textContent = t("post.reply", null, "Reply");
+    controls.appendChild(replyToggleButton);
+    li.appendChild(controls);
+
+    const replyForm = document.createElement("form");
+    replyForm.className = "comment-reply-form";
+    replyForm.hidden = true;
+    li.appendChild(replyForm);
+
+    const replyNameInput = document.createElement("input");
+    replyNameInput.type = "text";
+    replyNameInput.name = "name";
+    replyNameInput.maxLength = 80;
+    replyNameInput.autocomplete = "name";
+    replyNameInput.placeholder = t("post.namePlaceholder", null, "Anonymous visitor");
+    replyForm.appendChild(replyNameInput);
+
+    const replyContentInput = document.createElement("textarea");
+    replyContentInput.name = "content";
+    replyContentInput.required = true;
+    replyContentInput.rows = 3;
+    replyContentInput.maxLength = 2000;
+    replyContentInput.placeholder = t("post.replyPlaceholder", null, "Write a reply...");
+    replyForm.appendChild(replyContentInput);
+
+    const honeypotWrap = document.createElement("div");
+    honeypotWrap.className = "honeypot-wrap";
+    const websiteInput = document.createElement("input");
+    websiteInput.type = "text";
+    websiteInput.name = "website";
+    websiteInput.tabIndex = -1;
+    websiteInput.autocomplete = "off";
+    honeypotWrap.appendChild(websiteInput);
+    replyForm.appendChild(honeypotWrap);
+
+    const replySubmitButton = document.createElement("button");
+    replySubmitButton.type = "submit";
+    replySubmitButton.textContent = t("post.sendReply", null, "Send Reply");
+    replyForm.appendChild(replySubmitButton);
+
+    const replyStatus = document.createElement("p");
+    replyStatus.className = "comment-reply-status";
+    replyStatus.setAttribute("aria-live", "polite");
+    replyForm.appendChild(replyStatus);
+
+    function setReplyFormOpen(isOpen) {
+      replyForm.hidden = !isOpen;
+      replyToggleButton.setAttribute("aria-expanded", String(isOpen));
+      replyToggleButton.textContent = isOpen
+        ? t("post.cancelReply", null, "Cancel")
+        : t("post.reply", null, "Reply");
+      if (isOpen) {
+        replyContentInput.focus();
+      }
+    }
+
+    replyToggleButton.setAttribute("aria-expanded", "false");
+    replyToggleButton.addEventListener("click", () => {
+      setReplyFormOpen(replyForm.hidden);
+    });
+
+    replyForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (replySubmitButton.disabled) return;
+
+      const payload = {
+        parent_id: commentNode.id,
+        name: String(replyNameInput.value || "").trim(),
+        content: String(replyContentInput.value || "").trim(),
+        website: String(websiteInput.value || "").trim()
+      };
+
+      if (!payload.content) {
+        replyStatus.textContent = t("post.replyRequired", null, "Reply content is required.");
+        replyStatus.classList.remove("status-ok");
+        replyStatus.classList.add("status-error");
+        return;
+      }
+
+      replySubmitButton.disabled = true;
+      replyStatus.classList.remove("status-ok", "status-error");
+
+      const posted = await renderOptions.onReplySubmit(payload, replyStatus);
+      if (posted) {
+        replyForm.reset();
+        setReplyFormOpen(false);
+      } else {
+        replyStatus.classList.remove("status-ok");
+        replyStatus.classList.add("status-error");
+      }
+
+      replySubmitButton.disabled = false;
+    });
+  }
+
+  if (Array.isArray(commentNode.replies) && commentNode.replies.length > 0) {
+    const children = document.createElement("ul");
+    children.className = "comment-thread-children";
+    commentNode.replies.forEach((replyNode) => {
+      children.appendChild(renderCommentNode(replyNode, depth + 1, renderOptions));
+    });
+    li.appendChild(children);
+  }
+
+  return li;
+}
+
+function renderComments(commentListEl, comments, options) {
+  const renderOptions = options && typeof options === "object" ? options : {};
 
   commentListEl.innerHTML = "";
+  const roots = buildCommentTree(comments);
 
-  if (!Array.isArray(comments) || comments.length === 0) {
+  if (roots.length === 0) {
     const li = document.createElement("li");
     li.className = "comment-card";
     li.textContent = t(
@@ -2200,37 +2481,8 @@ function renderComments(commentListEl, comments, options) {
     return;
   }
 
-  comments.forEach((comment) => {
-    const li = document.createElement("li");
-    li.className = "comment-card";
-
-    const head = document.createElement("div");
-    head.className = "comment-head";
-
-    const meta = document.createElement("p");
-    meta.className = "meta-line";
-    const safeName = escapeHtml(comment.name || t("common.anonymous", null, "Anonymous"));
-    const safeDate = escapeHtml(formatDate(comment.created_at));
-    meta.innerHTML = safeName + " | " + safeDate;
-    head.appendChild(meta);
-
-    if (adminAuthenticated) {
-      head.appendChild(
-        createCommentDeleteButton(
-          comment.id,
-          renderOptions.onCommentDeleted,
-          renderOptions.onDeleteError
-        )
-      );
-    }
-
-    const body = document.createElement("p");
-    body.className = "comment-body";
-    body.innerHTML = escapeHtml(comment.content || "");
-
-    li.appendChild(head);
-    li.appendChild(body);
-    commentListEl.appendChild(li);
+  roots.forEach((rootComment) => {
+    commentListEl.appendChild(renderCommentNode(rootComment, 0, renderOptions));
   });
 }
 

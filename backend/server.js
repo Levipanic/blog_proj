@@ -663,7 +663,7 @@ app.get("/comments/:post_id", async (req, res, next) => {
     const limit = Math.min(20, parsedLimit);
 
     let sql =
-      "SELECT id, post_id, name, content, created_at FROM comments WHERE post_id = ? ORDER BY datetime(created_at) " +
+      "SELECT id, post_id, parent_id, name, content, created_at FROM comments WHERE post_id = ? ORDER BY datetime(created_at) " +
       order +
       ", id " +
       order;
@@ -685,6 +685,7 @@ app.get("/comments/:post_id", async (req, res, next) => {
 app.post("/comments", commentLimiter, async (req, res, next) => {
   try {
     const postId = Number(req.body.post_id);
+    const rawParentId = req.body.parent_id;
     const name = (req.body.name || "").trim();
     const content = (req.body.content || "").trim();
     const honeypot = (req.body.website || "").trim();
@@ -697,14 +698,30 @@ app.post("/comments", commentLimiter, async (req, res, next) => {
       return res.status(400).json({ error: "post_id and content are required." });
     }
 
+    let parentId = null;
+    const hasParentId = rawParentId !== undefined && rawParentId !== null && String(rawParentId).trim() !== "";
+    if (hasParentId) {
+      parentId = Number(rawParentId);
+      if (!Number.isInteger(parentId) || parentId <= 0) {
+        return res.status(400).json({ error: "Invalid parent comment id." });
+      }
+    }
+
     const postExists = await get("SELECT id FROM posts WHERE id = ?", [postId]);
     if (!postExists) {
       return res.status(404).json({ error: "Post not found." });
     }
 
+    if (parentId !== null) {
+      const parentComment = await get("SELECT id, post_id FROM comments WHERE id = ?", [parentId]);
+      if (!parentComment || Number(parentComment.post_id) !== postId) {
+        return res.status(404).json({ error: "Parent comment not found." });
+      }
+    }
+
     await run(
-      "INSERT INTO comments (post_id, name, content, created_at) VALUES (?, ?, ?, datetime('now'))",
-      [postId, name || null, content]
+      "INSERT INTO comments (post_id, parent_id, name, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+      [postId, parentId, name || null, content]
     );
 
     res.status(201).json({ ok: true });
@@ -725,7 +742,20 @@ app.delete("/comments/:id", requireAdminSession, async (req, res, next) => {
       return res.status(404).json({ error: "Comment not found." });
     }
 
-    await run("DELETE FROM comments WHERE id = ?", [commentId]);
+    await run(
+      `
+        WITH RECURSIVE comment_tree(id) AS (
+          SELECT id FROM comments WHERE id = ?
+          UNION ALL
+          SELECT comments.id
+          FROM comments
+          JOIN comment_tree ON comments.parent_id = comment_tree.id
+        )
+        DELETE FROM comments
+        WHERE id IN (SELECT id FROM comment_tree)
+      `,
+      [commentId]
+    );
     res.json({
       ok: true,
       id: existingComment.id,

@@ -957,15 +957,30 @@ select {
   margin: 0 0 0.65rem;
 }
 
-.comment-card {
-  min-width: 0;
-  border-top: 1px solid var(--border-soft);
-  padding: 0.7rem 0;
+.comment-list {
+  display: grid;
+  gap: 0.68rem;
 }
 
-.comment-card:first-child {
-  border-top: 0;
-  padding-top: 0;
+.comment-card {
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: var(--surface-alt);
+  padding: 0.66rem 0.72rem;
+}
+
+.comment-card-nested {
+  background: var(--surface);
+}
+
+.comment-thread-children {
+  list-style: none;
+  margin: 0.58rem 0 0;
+  padding: 0 0 0 0.62rem;
+  border-left: 2px solid var(--border-soft);
+  display: grid;
+  gap: 0.52rem;
 }
 
 .meta-line {
@@ -980,11 +995,23 @@ select {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.6rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.28rem;
 }
 
 .comment-head .meta-line {
   margin-bottom: 0;
+}
+
+.comment-head-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.comment-head-actions .admin-delete-button {
+  min-height: 1.9rem;
+  padding: 0.28rem 0.58rem;
+  font-size: 0.75rem;
 }
 
 .comment-body {
@@ -992,6 +1019,80 @@ select {
   font-size: 0.95rem;
   line-height: 1.52;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment-controls {
+  margin-top: 0.44rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.44rem;
+}
+
+.comment-reply-button {
+  min-height: 2rem;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-subtle);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.comment-reply-button:hover {
+  background: var(--surface-hover);
+}
+
+.comment-reply-form {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.46rem;
+}
+
+.comment-reply-form[hidden] {
+  display: none !important;
+}
+
+.comment-reply-form input,
+.comment-reply-form textarea,
+.comment-reply-form button {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--input-border);
+  border-radius: var(--control-radius);
+  background: var(--input-bg);
+  color: var(--input-text);
+  padding: 0.5rem 0.62rem;
+  min-height: 2.35rem;
+}
+
+.comment-reply-form textarea {
+  min-height: 4.4rem;
+  resize: vertical;
+  overflow: auto;
+}
+
+.comment-reply-form button {
+  color: var(--button-text);
+  border-color: var(--button-border);
+  background: linear-gradient(180deg, var(--button-bg-start), var(--button-bg-end));
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.comment-reply-form button:hover {
+  background: linear-gradient(180deg, var(--button-bg-start-hover), var(--button-bg-end-hover));
+}
+
+.comment-reply-status {
+  margin: 0;
+  min-height: 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
   overflow-wrap: anywhere;
 }
 
@@ -1304,6 +1405,14 @@ select {
     width: 100%;
     margin-left: 0;
     justify-content: space-between;
+  }
+
+  .comment-card {
+    padding: 0.6rem;
+  }
+
+  .comment-thread-children {
+    padding-left: 0.5rem;
   }
 
   .mini-audio-player {

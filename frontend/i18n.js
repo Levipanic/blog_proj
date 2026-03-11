@@ -67,10 +67,16 @@
       "post.namePlaceholder": "Анон",
       "post.commentLabel": "Комментарий",
       "post.commentPlaceholder": "Оставьте сообщение...",
+      "post.reply": "Ответить",
+      "post.cancelReply": "Отмена",
+      "post.replyPlaceholder": "Напишите ответ...",
+      "post.sendReply": "Отправить ответ",
       "post.websiteLabel": "Сайт",
       "post.send": "Отправить комментарий",
       "post.commentSending": "Отправка...",
       "post.commentPosted": "Комментарий опубликован.",
+      "post.replyPosted": "Ответ опубликован.",
+      "post.replyRequired": "Текст ответа обязателен.",
       "post.commentError": "Не удалось отправить комментарий.",
       "post.emptyBlocks": "В этом посте нет читаемых блоков.",
       "post.fileAttached": "Прикрепленный файл",
@@ -167,6 +173,8 @@
       "errors.invalidPostId": "Некорректный id поста.",
       "errors.invalidCommentId": "Некорректный id комментария.",
       "errors.commentNotFound": "Комментарий не найден.",
+      "errors.invalidParentCommentId": "Некорректный id родительского комментария.",
+      "errors.parentCommentNotFound": "Родительский комментарий не найден.",
       "errors.rateLike": "Слишком много запросов на лайк. Попробуйте через минуту.",
       "errors.rateComment": "Слишком много комментариев с этого IP. Попробуйте через минуту.",
       "errors.likeCooldown": "Вы недавно уже лайкали этот пост. Подождите около {seconds} сек.",
@@ -244,10 +252,16 @@
       "post.namePlaceholder": "Anonymous visitor",
       "post.commentLabel": "Comment",
       "post.commentPlaceholder": "Leave a note...",
+      "post.reply": "Reply",
+      "post.cancelReply": "Cancel",
+      "post.replyPlaceholder": "Write a reply...",
+      "post.sendReply": "Send Reply",
       "post.websiteLabel": "Website",
       "post.send": "Send Comment",
       "post.commentSending": "Sending...",
       "post.commentPosted": "Comment posted.",
+      "post.replyPosted": "Reply posted.",
+      "post.replyRequired": "Reply content is required.",
       "post.commentError": "Failed to post comment.",
       "post.emptyBlocks": "This post has no readable blocks.",
       "post.fileAttached": "Attached file",
@@ -344,6 +358,8 @@
       "errors.invalidPostId": "Invalid post id.",
       "errors.invalidCommentId": "Invalid comment id.",
       "errors.commentNotFound": "Comment not found.",
+      "errors.invalidParentCommentId": "Invalid parent comment id.",
+      "errors.parentCommentNotFound": "Parent comment not found.",
       "errors.rateLike": "Too many like requests from this IP. Please wait a minute and try again.",
       "errors.rateComment": "Too many comments from this IP. Please try again in a minute.",
       "errors.likeCooldown": "You already liked this post recently. Please wait about {seconds} seconds.",
@@ -460,6 +476,8 @@
     if (message === "Invalid post id.") return t("errors.invalidPostId");
     if (message === "Invalid comment id.") return t("errors.invalidCommentId");
     if (message === "Comment not found.") return t("errors.commentNotFound");
+    if (message === "Invalid parent comment id.") return t("errors.invalidParentCommentId");
+    if (message === "Parent comment not found.") return t("errors.parentCommentNotFound");
     if (message === "Too many like requests from this IP. Please wait a minute and try again.") {
       return t("errors.rateLike");
     }

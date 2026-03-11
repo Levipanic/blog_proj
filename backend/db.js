@@ -278,11 +278,24 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS comments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       post_id INTEGER NOT NULL,
+      parent_id INTEGER,
       name TEXT,
       content TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE CASCADE
     )
+  `);
+
+  const commentColumnsAfterCreate = await all("PRAGMA table_info(comments)");
+  const hasParentIdColumn = commentColumnsAfterCreate.some((column) => column.name === "parent_id");
+  if (!hasParentIdColumn) {
+    await run("ALTER TABLE comments ADD COLUMN parent_id INTEGER");
+  }
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comments_post_parent
+    ON comments(post_id, parent_id, id)
   `);
 
   await run(`
