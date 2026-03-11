@@ -13,6 +13,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 const dbPath = path.join(dataDir, "blog.db");
+const dbFileExistedBeforeOpen = fs.existsSync(dbPath);
 const db = new Database(dbPath);
 
 function run(sql, params = []) {
@@ -117,6 +118,10 @@ function ensureSeedMediaFiles() {
 }
 
 async function seedDb() {
+  if (dbFileExistedBeforeOpen) {
+    return;
+  }
+
   ensureSeedMediaFiles();
 
   const countRow = await get("SELECT COUNT(*) AS total FROM posts");

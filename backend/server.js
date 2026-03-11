@@ -300,6 +300,14 @@ function parsePositivePostId(value) {
   return postId;
 }
 
+function parsePositiveCommentId(value) {
+  const commentId = Number(value);
+  if (!Number.isInteger(commentId) || commentId <= 0) {
+    return null;
+  }
+  return commentId;
+}
+
 function asLikeCount(value) {
   const likes = Number(value);
   if (!Number.isFinite(likes) || likes < 0) {
@@ -502,10 +510,16 @@ function getPreviewText(blocks) {
 }
 
 function getPreviewMedia(blocks) {
-  const block = blocks.find(
-    (item) =>
-      item.type === "media" && (item.mediaKind === "image" || item.mediaKind === "gif") && item.src
+  const audioBlock = blocks.find(
+    (item) => item.type === "media" && item.mediaKind === "audio" && item.src
   );
+
+  const block =
+    audioBlock ||
+    blocks.find(
+      (item) =>
+        item.type === "media" && allowedMediaKinds.has(item.mediaKind) && item.src
+    );
 
   if (!block) {
     return null;
@@ -699,6 +713,29 @@ app.post("/comments", commentLimiter, async (req, res, next) => {
   }
 });
 
+app.delete("/comments/:id", requireAdminSession, async (req, res, next) => {
+  try {
+    const commentId = parsePositiveCommentId(req.params.id);
+    if (!commentId) {
+      return res.status(400).json({ error: "Invalid comment id." });
+    }
+
+    const existingComment = await get("SELECT id, post_id FROM comments WHERE id = ?", [commentId]);
+    if (!existingComment) {
+      return res.status(404).json({ error: "Comment not found." });
+    }
+
+    await run("DELETE FROM comments WHERE id = ?", [commentId]);
+    res.json({
+      ok: true,
+      id: existingComment.id,
+      post_id: existingComment.post_id
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/posts/:id/likes", async (req, res, next) => {
   try {
     const postId = parsePositivePostId(req.params.id);
@@ -800,6 +837,25 @@ app.post("/posts", requireAdminSession, async (req, res, next) => {
       created_at: newPost.created_at,
       blocks: parseBlocksJson(newPost.blocks_json)
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/posts/:id", requireAdminSession, async (req, res, next) => {
+  try {
+    const postId = parsePositivePostId(req.params.id);
+    if (!postId) {
+      return res.status(400).json({ error: "Invalid post id." });
+    }
+
+    const existingPost = await get("SELECT id FROM posts WHERE id = ?", [postId]);
+    if (!existingPost) {
+      return res.status(404).json({ error: "Post not found." });
+    }
+
+    await run("DELETE FROM posts WHERE id = ?", [postId]);
+    res.json({ ok: true, id: postId });
   } catch (error) {
     next(error);
   }
