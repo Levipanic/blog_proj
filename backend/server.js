@@ -784,34 +784,6 @@ function requireJsonRequest(req, res, next) {
   return res.status(415).json({ error: "Unsupported content type. Please send JSON." });
 }
 
-function toBase64Url(input) {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function fromBase64Url(input) {
-  const normalized = String(input || "").replace(/-/g, "+").replace(/_/g, "/");
-  if (!normalized) {
-    return Buffer.alloc(0);
-  }
-
-  const padLength = (4 - (normalized.length % 4)) % 4;
-  const padded = normalized + "=".repeat(padLength);
-  return Buffer.from(padded, "base64");
-}
-
-function signAdminSessionPayload(encodedPayload) {
-  return toBase64Url(
-    crypto
-      .createHmac("sha256", adminSessionHashSalt)
-      .update(String(encodedPayload || ""))
-      .digest()
-  );
-}
-
 function formatSqlDatetimeFromUnixSeconds(unixSeconds) {
   const millis = Number(unixSeconds) * 1000;
   const date = new Date(millis);
@@ -910,32 +882,51 @@ function clearAdminSessionCookie(res) {
   res.append("Set-Cookie", cookie);
 }
 
+function hashAdminSessionToken(token) {
+  const value = String(token || "");
+  if (!/^[a-f0-9]{64}$/i.test(value)) return "";
+  return crypto.createHash("sha256").update(`${adminSessionHashSalt}:${value}`).digest("hex");
+}
+
+function createAdminCsrfToken(session) {
+  const tokenHash = session && session.token_hash ? String(session.token_hash) : "";
+  if (!tokenHash) return "";
+  return crypto
+    .createHmac("sha256", adminSessionHashSalt)
+    .update(`csrf:${tokenHash}`)
+    .digest("hex");
+}
+
 async function deleteExpiredAdminSessions() {
-  return;
+  return run("DELETE FROM admin_sessions WHERE datetime(expires_at) <= datetime('now')");
 }
 
 async function createAdminSession() {
   const issuedAtSeconds = Math.floor(Date.now() / 1000);
   const expiresAtSeconds = issuedAtSeconds + Math.floor(adminSessionTtlMs / 1000);
-  const payload = {
-    v: 1,
-    iat: issuedAtSeconds,
-    exp: expiresAtSeconds,
-    nonce: crypto.randomBytes(16).toString("hex")
-  };
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashAdminSessionToken(token);
+  const createdAt = formatSqlDatetimeFromUnixSeconds(issuedAtSeconds);
+  const expiresAt = formatSqlDatetimeFromUnixSeconds(expiresAtSeconds);
 
-  const encodedPayload = toBase64Url(JSON.stringify(payload));
-  const signature = signAdminSessionPayload(encodedPayload);
+  await deleteExpiredAdminSessions();
+  await run(
+    "INSERT INTO admin_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)",
+    [tokenHash, createdAt, expiresAt]
+  );
 
   return {
-    token: `${encodedPayload}.${signature}`,
-    createdAt: formatSqlDatetimeFromUnixSeconds(issuedAtSeconds),
-    expiresAt: formatSqlDatetimeFromUnixSeconds(expiresAtSeconds)
+    token,
+    tokenHash,
+    createdAt,
+    expiresAt
   };
 }
 
 async function deleteAdminSessionByToken(token) {
-  return;
+  const tokenHash = hashAdminSessionToken(token);
+  if (!tokenHash) return null;
+  return run("DELETE FROM admin_sessions WHERE token_hash = ?", [tokenHash]);
 }
 
 async function getAdminSessionFromRequest(req) {
@@ -944,61 +935,34 @@ async function getAdminSessionFromRequest(req) {
     return null;
   }
 
-  const parts = String(rawToken).split(".");
-  if (parts.length !== 2) {
+  const tokenHash = hashAdminSessionToken(rawToken);
+  if (!tokenHash) {
     return null;
   }
 
-  const encodedPayload = parts[0];
-  const signature = parts[1];
-  if (!encodedPayload || !signature) {
+  const session = await get(
+    "SELECT token_hash, created_at, expires_at FROM admin_sessions WHERE token_hash = ?",
+    [tokenHash]
+  );
+  if (!session) {
     return null;
   }
 
-  const expectedSignature = signAdminSessionPayload(encodedPayload);
-  if (!secureSecretsMatch(signature, expectedSignature)) {
+  const expiresAtMillis = parseUtcMillis(session.expires_at);
+  if (!expiresAtMillis || expiresAtMillis <= Date.now()) {
+    await run("DELETE FROM admin_sessions WHERE token_hash = ?", [tokenHash]);
     return null;
   }
 
-  let payload;
-  try {
-    payload = JSON.parse(fromBase64Url(encodedPayload).toString("utf8"));
-  } catch (error) {
-    return null;
-  }
-
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const issuedAtSeconds = Number(payload.iat);
-  const expiresAtSeconds = Number(payload.exp);
-  if (!Number.isInteger(issuedAtSeconds) || !Number.isInteger(expiresAtSeconds)) {
-    return null;
-  }
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  if (issuedAtSeconds > nowSeconds + adminSessionClockSkewSeconds) {
-    return null;
-  }
-  if (expiresAtSeconds <= nowSeconds - adminSessionClockSkewSeconds) {
-    return null;
-  }
-
-  const maxSessionDurationSeconds = Math.floor(adminSessionTtlMs / 1000);
-  if (expiresAtSeconds - issuedAtSeconds > maxSessionDurationSeconds + adminSessionClockSkewSeconds) {
-    return null;
-  }
-
-  const createdAt = formatSqlDatetimeFromUnixSeconds(issuedAtSeconds);
-  const expiresAt = formatSqlDatetimeFromUnixSeconds(expiresAtSeconds);
-  if (!createdAt || !expiresAt) {
+  const createdAtMillis = parseUtcMillis(session.created_at);
+  if (createdAtMillis && createdAtMillis > Date.now() + adminSessionClockSkewSeconds * 1000) {
     return null;
   }
 
   return {
-    created_at: createdAt,
-    expires_at: expiresAt
+    token_hash: session.token_hash,
+    created_at: session.created_at,
+    expires_at: session.expires_at
   };
 }
 
@@ -1007,6 +971,22 @@ function requireAdminSession(req, res, next) {
     return res.status(401).json({ error: "Admin login required." });
   }
   next();
+}
+
+function requireAdminCsrf(req, res, next) {
+  const expectedToken = createAdminCsrfToken(req.adminSession);
+  const providedToken = String(req.get("X-CSRF-Token") || "");
+  if (!expectedToken || !providedToken || !secureSecretsMatch(providedToken, expectedToken)) {
+    return res.status(403).json({ error: "Invalid CSRF token." });
+  }
+  next();
+}
+
+function requireAdminWrite(req, res, next) {
+  requireAdminSession(req, res, (sessionError) => {
+    if (sessionError) return next(sessionError);
+    requireAdminCsrf(req, res, next);
+  });
 }
 
 function parsePositivePostId(value) {
@@ -1304,11 +1284,11 @@ app.post("/admin/login", adminLoginLimiter, async (req, res, next) => {
   try {
     const secret = asText(req.body && req.body.secret);
     if (!secret) {
-      return res.status(400).json({ error: "Admin secret is required." });
+      return res.status(400).json({ error: "Admin key is required." });
     }
 
     if (!secureSecretsMatch(secret, adminSecret)) {
-      return res.status(401).json({ error: "Invalid admin secret." });
+      return res.status(401).json({ error: "Invalid admin key." });
     }
 
     const session = await createAdminSession();
@@ -1319,14 +1299,15 @@ app.post("/admin/login", adminLoginLimiter, async (req, res, next) => {
       authenticated: true,
       expires_in_seconds: Math.floor(adminSessionTtlMs / 1000),
       created_at: session.createdAt,
-      expires_at: session.expiresAt
+      expires_at: session.expiresAt,
+      csrf_token: createAdminCsrfToken({ token_hash: session.tokenHash })
     });
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/admin/logout", async (req, res, next) => {
+app.post("/admin/logout", requireAdminWrite, async (req, res, next) => {
   try {
     const token = readCookie(req, adminSessionCookieName);
     await deleteAdminSessionByToken(token);
@@ -1351,7 +1332,8 @@ app.get("/admin/session", async (req, res, next) => {
     res.json({
       authenticated: true,
       created_at: session.created_at,
-      expires_at: session.expires_at
+      expires_at: session.expires_at,
+      csrf_token: createAdminCsrfToken(session)
     });
   } catch (error) {
     next(error);
@@ -1545,7 +1527,7 @@ app.post("/comments", requireJsonRequest, commentAttemptLimiter, async (req, res
   }
 });
 
-app.delete("/comments/:id", requireAdminSession, async (req, res, next) => {
+app.delete("/comments/:id", requireAdminWrite, async (req, res, next) => {
   try {
     const commentId = parsePositiveCommentId(req.params.id);
     if (!commentId) {
@@ -1704,7 +1686,7 @@ app.post("/posts/:id/like", likeLimiter, async (req, res, next) => {
   }
 });
 
-app.post("/posts", requireAdminSession, adminPostLimiter, async (req, res, next) => {
+app.post("/posts", requireAdminWrite, adminPostLimiter, async (req, res, next) => {
   try {
     const payload = validateCreatePostPayload(req.body);
     if (payload.errors.length > 0) {
@@ -1738,7 +1720,7 @@ app.post("/posts", requireAdminSession, adminPostLimiter, async (req, res, next)
   }
 });
 
-app.delete("/posts/:id", requireAdminSession, async (req, res, next) => {
+app.delete("/posts/:id", requireAdminWrite, async (req, res, next) => {
   try {
     const postId = parsePositivePostId(req.params.id);
     if (!postId) {
@@ -1757,7 +1739,7 @@ app.delete("/posts/:id", requireAdminSession, async (req, res, next) => {
   }
 });
 
-app.post("/upload", requireAdminSession, (req, res, next) => {
+app.post("/upload", requireAdminWrite, (req, res, next) => {
   upload.single("file")(req, res, (error) => {
     if (error) {
       if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {

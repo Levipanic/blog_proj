@@ -110,8 +110,8 @@
       "admin.title": "Админка",
       "admin.subtitle": "Войдите один раз, затем загружайте файлы и создавайте посты.",
       "admin.loginTitle": "Вход в админку",
-      "admin.secretLabel": "Админ-секрет",
-      "admin.secretPlaceholder": "Введите ADMIN_SECRET",
+      "admin.secretLabel": "Админ-ключ",
+      "admin.secretPlaceholder": "Введите админ-ключ",
       "admin.loginButton": "Войти",
       "admin.sectionUpload": "1) Загрузка файла",
       "admin.fileLabel": "Файл",
@@ -136,11 +136,12 @@
       "admin.previewUntitled": "Пост без названия",
       "admin.sessionNeedLogin": "Войдите, чтобы открыть инструменты админа.",
       "admin.sessionActive": "Сессия админа активна.",
+      "admin.sessionExpiresAt": "Сессия истекает: {time}.",
       "admin.loggedInMessage": "Вход выполнен. Можно загружать файлы и публиковать посты.",
-      "admin.loginPrompt": "Войдите с ADMIN_SECRET для доступа к админке.",
+      "admin.loginPrompt": "Войдите с админ-ключом для доступа к админке.",
       "admin.sessionCheckFailed": "Не удалось проверить сессию админа. Повторите попытку.",
       "admin.forceLogin": "Пожалуйста, войдите как админ.",
-      "admin.secretRequired": "Нужен админ-секрет.",
+      "admin.secretRequired": "Нужен админ-ключ.",
       "admin.loggingIn": "Выполняется вход...",
       "admin.loginFailed": "Ошибка входа.",
       "admin.loginRequired": "Требуется вход в админку.",
@@ -231,8 +232,8 @@
       "errors.apiRate": "Слишком много запросов с этого IP. Подождите немного и повторите.",
       "errors.adminPostRateLimit": "Слишком много попыток создания постов. Подождите несколько минут.",
       "errors.adminRequired": "Требуется вход в админку.",
-      "errors.adminSecretRequired": "Нужен админ-секрет.",
-      "errors.adminSecretInvalid": "Неверный админ-секрет.",
+      "errors.adminSecretRequired": "Нужен админ-ключ.",
+      "errors.adminSecretInvalid": "Неверный админ-ключ.",
       "errors.fileRequired": "Нужно поле file.",
       "errors.fileEmpty": "Пустые файлы загружать нельзя.",
       "errors.fileTooLarge": "Файл слишком большой. Максимум {size}.",
@@ -345,8 +346,8 @@
       "admin.title": "Admin",
       "admin.subtitle": "Login once, then upload files and create posts.",
       "admin.loginTitle": "Admin Login",
-      "admin.secretLabel": "Admin secret",
-      "admin.secretPlaceholder": "Enter ADMIN_SECRET",
+      "admin.secretLabel": "Admin key",
+      "admin.secretPlaceholder": "Enter admin key",
       "admin.loginButton": "Login",
       "admin.sectionUpload": "1) Upload File",
       "admin.fileLabel": "File",
@@ -371,11 +372,12 @@
       "admin.previewUntitled": "Untitled post",
       "admin.sessionNeedLogin": "Log in to access admin tools.",
       "admin.sessionActive": "Admin session active.",
+      "admin.sessionExpiresAt": "Session expires at {time}.",
       "admin.loggedInMessage": "Logged in. You can upload files and publish posts.",
-      "admin.loginPrompt": "Log in with ADMIN_SECRET to access admin tools.",
+      "admin.loginPrompt": "Log in with the admin key to access admin tools.",
       "admin.sessionCheckFailed": "Could not check admin session. Try again.",
       "admin.forceLogin": "Please log in as admin.",
-      "admin.secretRequired": "Admin secret is required.",
+      "admin.secretRequired": "Admin key is required.",
       "admin.loggingIn": "Logging in...",
       "admin.loginFailed": "Login failed.",
       "admin.loginRequired": "Admin login required.",
@@ -466,8 +468,8 @@
       "errors.apiRate": "Too many requests from this IP. Please wait a moment and try again.",
       "errors.adminPostRateLimit": "Too many post creation attempts. Please wait a few minutes and try again.",
       "errors.adminRequired": "Admin login required.",
-      "errors.adminSecretRequired": "Admin secret is required.",
-      "errors.adminSecretInvalid": "Invalid admin secret.",
+      "errors.adminSecretRequired": "Admin key is required.",
+      "errors.adminSecretInvalid": "Invalid admin key.",
       "errors.fileRequired": "file is required.",
       "errors.fileEmpty": "Empty file uploads are not allowed.",
       "errors.fileTooLarge": "File is too large. Max size is {size}.",
@@ -629,8 +631,12 @@
       return t("errors.adminPostRateLimit");
     }
     if (message === "Admin login required.") return t("errors.adminRequired");
-    if (message === "Admin secret is required.") return t("errors.adminSecretRequired");
-    if (message === "Invalid admin secret.") return t("errors.adminSecretInvalid");
+    if (message === "Admin key is required.") {
+      return t("errors.adminSecretRequired");
+    }
+    if (message === "Invalid admin key.") {
+      return t("errors.adminSecretInvalid");
+    }
     if (message === "file is required.") return t("errors.fileRequired");
     if (message === "Empty file uploads are not allowed.") return t("errors.fileEmpty");
     if (message === "Invalid post payload.") return t("errors.invalidPayload");

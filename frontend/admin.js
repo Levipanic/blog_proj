@@ -47,6 +47,7 @@
   let draftBlocks = [];
   let draggedBlockIndex = -1;
   let draftDirty = false;
+  let adminCsrfToken = "";
   let previewRenderQueued = false;
   const collapsedBlocks = new WeakSet();
 
@@ -92,6 +93,19 @@
   function setResult(preElement, data) {
     if (!preElement) return;
     preElement.textContent = data ? JSON.stringify(data, null, 2) : "";
+  }
+
+  function formatAdminDate(dateString) {
+    const date = new Date(String(dateString || "").replace(" ", "T") + "Z");
+    if (Number.isNaN(date.getTime())) return "";
+    const language = window.i18n && typeof window.i18n.getLanguage === "function" ? window.i18n.getLanguage() : "ru";
+    return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US");
+  }
+
+  function buildSessionMessage(message, sessionData) {
+    const expiresText = formatAdminDate(sessionData && sessionData.expires_at);
+    if (!expiresText) return message;
+    return message + " " + t("admin.sessionExpiresAt", { time: expiresText }, "Session expires at " + expiresText + ".");
   }
 
   function readStoredDraft() {
@@ -167,6 +181,7 @@
   }
 
   function showLoginView(sessionMessage, isError) {
+    adminCsrfToken = "";
     adminLoginView.hidden = false;
     adminEditorView.hidden = true;
     setStatus(
@@ -177,13 +192,19 @@
     setHeaderAdminUi(false);
   }
 
-  function showEditorView(sessionMessage) {
+  function showEditorView(sessionMessage, sessionData) {
+    if (sessionData && typeof sessionData.csrf_token === "string") {
+      adminCsrfToken = sessionData.csrf_token;
+    }
     adminLoginView.hidden = true;
     adminEditorView.hidden = false;
     setStatus(adminLoginStatus, "", false);
     setStatus(
       adminSessionStatus,
-      sessionMessage || t("admin.sessionActive", null, "Admin session active."),
+      buildSessionMessage(
+        sessionMessage || t("admin.sessionActive", null, "Admin session active."),
+        sessionData
+      ),
       false
     );
     setHeaderAdminUi(true);
@@ -743,6 +764,14 @@
 
   async function requestJson(url, options) {
     const requestOptions = Object.assign({ credentials: "same-origin" }, options || {});
+    const method = String(requestOptions.method || "GET").toUpperCase();
+    const isAdminMutation = !["GET", "HEAD", "OPTIONS"].includes(method) && url !== "/admin/login";
+    if (isAdminMutation && adminCsrfToken) {
+      const headers = new Headers(requestOptions.headers || {});
+      headers.set("X-CSRF-Token", adminCsrfToken);
+      requestOptions.headers = headers;
+    }
+
     const response = await fetch(url, requestOptions);
     let data = null;
 
@@ -761,6 +790,10 @@
       const requestError = new Error(message + details);
       requestError.status = response.status;
       requestError.payload = data;
+      if ((response.status === 401 || response.status === 403) && url !== "/admin/session" && url !== "/admin/login") {
+        adminCsrfToken = "";
+        await forceLogoutUi(t("admin.sessionExpired", null, "Session expired. Log in again."));
+      }
       throw requestError;
     }
 
@@ -771,10 +804,10 @@
     try {
       const data = await requestJson("/admin/session");
       if (data && data.authenticated) {
-        showEditorView(t("admin.loggedInMessage", null, "Logged in. You can upload files and publish posts."));
+        showEditorView(t("admin.loggedInMessage", null, "Logged in. You can upload files and publish posts."), data);
       } else {
         showLoginView(
-          t("admin.loginPrompt", null, "Log in with ADMIN_SECRET to access admin tools."),
+          t("admin.loginPrompt", null, "Log in with the admin key to access admin tools."),
           false
         );
       }
@@ -784,6 +817,7 @@
   }
 
   async function forceLogoutUi(message) {
+    adminCsrfToken = "";
     setHeaderAdminUi(false);
     adminEditorView.hidden = true;
     adminLoginView.hidden = false;
@@ -798,6 +832,9 @@
     try {
       const data = await requestJson("/admin/session");
       if (data && data.authenticated) {
+        if (typeof data.csrf_token === "string") {
+          adminCsrfToken = data.csrf_token;
+        }
         return true;
       }
     } catch (error) {
@@ -813,14 +850,14 @@
     const secret = asText(adminSecretInput.value);
 
     if (!secret) {
-      setStatus(adminLoginStatus, t("admin.secretRequired", null, "Admin secret is required."), true);
+      setStatus(adminLoginStatus, t("admin.secretRequired", null, "Admin key is required."), true);
       return;
     }
 
     setStatus(adminLoginStatus, t("admin.loggingIn", null, "Logging in..."), false);
 
     try {
-      await requestJson("/admin/login", {
+      const data = await requestJson("/admin/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -830,7 +867,7 @@
 
       adminLoginForm.reset();
       setStatus(adminLoginStatus, "", false);
-      showEditorView(t("admin.loggedInMessage", null, "Logged in. You can upload files and publish posts."));
+      showEditorView(t("admin.loggedInMessage", null, "Logged in. You can upload files and publish posts."), data);
     } catch (error) {
       setStatus(adminLoginStatus, translateErrorMessage(error, "admin.loginFailed", "Login failed."), true);
       showLoginView(t("admin.loginRequired", null, "Admin login required."), true);
@@ -842,6 +879,7 @@
       adminLogoutButton.disabled = true;
       try {
         await requestJson("/admin/logout", { method: "POST" });
+        adminCsrfToken = "";
         showLoginView(t("admin.loggedOut", null, "Logged out."), false);
       } catch (error) {
         setStatus(adminSessionStatus, translateErrorMessage(error, "admin.logoutFailed", "Logout failed."), true);
