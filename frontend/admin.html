@@ -154,6 +154,40 @@
                     <textarea id="blocksInput" rows="12" readonly></textarea>
                   </details>
 
+                  <details class="admin-cover-editor">
+                    <summary class="admin-section-title" data-i18n="admin.coverSection">Обложка поста</summary>
+                    <div class="admin-cover-options" role="radiogroup" aria-label="Выбор обложки" data-i18n-aria-label="admin.coverSection">
+                      <label class="admin-cover-option">
+                        <input type="radio" name="coverMode" value="auto" checked data-cover-mode="auto" />
+                        <span data-i18n="admin.coverAuto">Авто</span>
+                      </label>
+                      <label class="admin-cover-option">
+                        <input type="radio" name="coverMode" value="from-blocks" data-cover-mode="from-blocks" />
+                        <span data-i18n="admin.coverFromBlocks">Выбрать из блоков</span>
+                      </label>
+                      <label class="admin-cover-option">
+                        <input type="radio" name="coverMode" value="upload" data-cover-mode="upload" />
+                        <span data-i18n="admin.coverUpload">Загрузить как обложку</span>
+                      </label>
+                    </div>
+                    <div id="coverFromBlocksWrap" class="admin-cover-sub" hidden>
+                      <label for="coverBlockSelect" data-i18n="admin.coverSelectBlock">Выберите медиа-блок для обложки</label>
+                      <select id="coverBlockSelect" class="admin-cover-select"></select>
+                    </div>
+                    <div id="coverUploadWrap" class="admin-cover-sub" hidden>
+                      <div class="admin-cover-upload-row">
+                        <input type="file" id="coverUploadInput" />
+                        <button type="button" id="coverUploadButton" class="admin-button admin-button-secondary" data-i18n="admin.coverUploadBtn">Загрузить файл обложки</button>
+                      </div>
+                      <p id="coverUploadStatus" class="status-text"></p>
+                    </div>
+                    <div id="coverPreview" class="admin-cover-preview" hidden>
+                      <span id="coverPreviewLabel" class="admin-cover-preview-label" data-i18n="admin.coverSelected">Обложка выбрана</span>
+                      <div id="coverPreviewContent"></div>
+                      <button type="button" id="coverRemoveButton" class="admin-button admin-button-secondary" data-i18n="admin.coverRemove">Убрать обложку</button>
+                    </div>
+                  </details>
+
                   <div class="admin-post-actions">
                     <button type="submit" class="admin-button" data-i18n="admin.createPost">Создать пост</button>
                     <button

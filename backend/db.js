@@ -89,6 +89,11 @@ async function initDb() {
     await run("ALTER TABLE posts ADD COLUMN likes_count INTEGER NOT NULL DEFAULT 0");
   }
 
+  const hasPreviewMediaColumn = postColumnsAfterCreate.some((column) => column.name === "preview_media");
+  if (!hasPreviewMediaColumn) {
+    await run("ALTER TABLE posts ADD COLUMN preview_media TEXT DEFAULT NULL");
+  }
+
   await run(`
     CREATE TABLE IF NOT EXISTS comments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

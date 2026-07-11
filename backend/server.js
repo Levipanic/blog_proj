@@ -1344,10 +1344,39 @@ function validateAndNormalizePostBlock(rawBlock, index) {
   return { error: `${fieldPrefix}.type is invalid.` };
 }
 
+function validatePreviewMedia(value) {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return { error: "preview_media must be an object or null." };
+  }
+
+  const src = asText(value.src);
+  const mediaKind = asText(value.mediaKind);
+  if (!src || !mediaKind) {
+    return { error: "preview_media must include src and mediaKind." };
+  }
+
+  if (!ALLOWED_MEDIA_KINDS.has(mediaKind)) {
+    return { error: `preview_media mediaKind '${mediaKind}' is not allowed.` };
+  }
+
+  return {
+    value: {
+      src,
+      mediaKind,
+      alt: asText(value.alt) || "",
+      caption: asText(value.caption) || "",
+      name: asText(value.name) || ""
+    }
+  };
+}
+
 function validateCreatePostPayload(body) {
   const errors = [];
   const title = asText(body && body.title);
   const rawBlocks = body ? body.blocks : undefined;
+  const rawPreviewMedia = body ? body.preview_media : undefined;
   const blocks = [];
 
   if (!title) {
@@ -1371,13 +1400,36 @@ function validateCreatePostPayload(body) {
     });
   }
 
+  const previewMediaResult = validatePreviewMedia(rawPreviewMedia);
+  if (previewMediaResult && previewMediaResult.error) {
+    errors.push(previewMediaResult.error);
+  }
+
   return {
     errors,
     value: {
       title,
-      blocks
+      blocks,
+      preview_media: previewMediaResult ? previewMediaResult.value : null
     }
   };
+}
+
+function parsePreviewMediaJson(rawJson) {
+  if (typeof rawJson !== "string") return null;
+  try {
+    const parsed = JSON.parse(rawJson);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return {
+      src: asText(parsed.src) || "",
+      mediaKind: asText(parsed.mediaKind) || "",
+      alt: asText(parsed.alt) || "",
+      caption: asText(parsed.caption) || "",
+      name: asText(parsed.name) || ""
+    };
+  } catch (error) {
+    return null;
+  }
 }
 
 function parseBlocksJson(rawJson) {
@@ -1529,11 +1581,12 @@ app.get("/posts", async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const rows = await all(
-      "SELECT id, title, blocks_json, likes_count, created_at FROM posts ORDER BY datetime(created_at) DESC, id DESC LIMIT ? OFFSET ?",
+      "SELECT id, title, blocks_json, preview_media, likes_count, created_at FROM posts ORDER BY datetime(created_at) DESC, id DESC LIMIT ? OFFSET ?",
       [limit, offset]
     );
     const items = rows.map((row) => {
       const blocks = parseBlocksJson(row.blocks_json);
+      const savedPreview = row.preview_media ? parsePreviewMediaJson(row.preview_media) : null;
       return {
         id: row.id,
         title: row.title,
@@ -1541,7 +1594,7 @@ app.get("/posts", async (req, res, next) => {
         created_at: row.created_at,
         reading_minutes: getReadingMinutes(blocks),
         preview_text: getPreviewText(blocks),
-        preview_media: getPreviewMedia(blocks)
+        preview_media: savedPreview || getPreviewMedia(blocks)
       };
     });
     const totalRow = await get("SELECT COUNT(*) AS total FROM posts");
@@ -1563,7 +1616,7 @@ app.get("/posts", async (req, res, next) => {
 app.get("/posts/:id", async (req, res, next) => {
   try {
     const row = await get(
-      "SELECT id, title, blocks_json, likes_count, created_at FROM posts WHERE id = ?",
+      "SELECT id, title, blocks_json, preview_media, likes_count, created_at FROM posts WHERE id = ?",
       [req.params.id]
     );
 
@@ -1579,6 +1632,7 @@ app.get("/posts/:id", async (req, res, next) => {
       likes: asLikeCount(row.likes_count),
       created_at: row.created_at,
       reading_minutes: getReadingMinutes(blocks),
+      preview_media: row.preview_media ? parsePreviewMediaJson(row.preview_media) : getPreviewMedia(blocks),
       blocks
     });
   } catch (error) {
@@ -2153,24 +2207,30 @@ app.post("/posts", requireAdminWrite, adminPostLimiter, async (req, res, next) =
       });
     }
 
-    const { title, blocks } = payload.value;
+    const { title, blocks, preview_media } = payload.value;
+
+    const previewMediaJson = preview_media ? JSON.stringify(preview_media) : null;
 
     const result = await run(
-      "INSERT INTO posts (title, blocks_json, created_at) VALUES (?, ?, datetime('now'))",
-      [title, JSON.stringify(blocks)]
+      "INSERT INTO posts (title, blocks_json, preview_media, created_at) VALUES (?, ?, ?, datetime('now'))",
+      [title, JSON.stringify(blocks), previewMediaJson]
     );
 
     const newPost = await get(
-      "SELECT id, title, blocks_json, likes_count, created_at FROM posts WHERE id = ?",
+      "SELECT id, title, blocks_json, preview_media, likes_count, created_at FROM posts WHERE id = ?",
       [result.lastID]
     );
+
+    const savedBlocks = parseBlocksJson(newPost.blocks_json);
 
     res.status(201).json({
       id: newPost.id,
       title: newPost.title,
       likes: asLikeCount(newPost.likes_count),
       created_at: newPost.created_at,
-      blocks: parseBlocksJson(newPost.blocks_json)
+      reading_minutes: getReadingMinutes(savedBlocks),
+      preview_media: newPost.preview_media ? parsePreviewMediaJson(newPost.preview_media) : getPreviewMedia(savedBlocks),
+      blocks: savedBlocks
     });
   } catch (error) {
     next(error);
@@ -2197,23 +2257,28 @@ app.put("/posts/:id", requireAdminWrite, async (req, res, next) => {
       });
     }
 
-    const { title, blocks } = payload.value;
+    const { title, blocks, preview_media } = payload.value;
+    const previewMediaJson = preview_media ? JSON.stringify(preview_media) : null;
     await run(
-      "UPDATE posts SET title = ?, blocks_json = ? WHERE id = ?",
-      [title, JSON.stringify(blocks), postId]
+      "UPDATE posts SET title = ?, blocks_json = ?, preview_media = ? WHERE id = ?",
+      [title, JSON.stringify(blocks), previewMediaJson, postId]
     );
 
     const updated = await get(
-      "SELECT id, title, blocks_json, likes_count, created_at FROM posts WHERE id = ?",
+      "SELECT id, title, blocks_json, preview_media, likes_count, created_at FROM posts WHERE id = ?",
       [postId]
     );
+
+    const savedBlocks = parseBlocksJson(updated.blocks_json);
 
     res.json({
       id: updated.id,
       title: updated.title,
       likes: asLikeCount(updated.likes_count),
       created_at: updated.created_at,
-      blocks: parseBlocksJson(updated.blocks_json)
+      reading_minutes: getReadingMinutes(savedBlocks),
+      preview_media: updated.preview_media ? parsePreviewMediaJson(updated.preview_media) : getPreviewMedia(savedBlocks),
+      blocks: savedBlocks
     });
   } catch (error) {
     next(error);

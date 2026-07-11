@@ -2225,6 +2225,94 @@ body.has-mini-audio-player .post-toc-floating-btn {
   font-family: Consolas, "Courier New", monospace;
 }
 
+.admin-cover-editor {
+  margin: 0.85rem 0 0.55rem;
+}
+
+.admin-cover-editor > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.admin-cover-editor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-cover-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+}
+
+.admin-cover-option {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.admin-cover-sub {
+  margin: 0.45rem 0;
+}
+
+.admin-cover-select {
+  display: block;
+  width: 100%;
+  max-width: 24rem;
+  margin-top: 0.3rem;
+  padding: 0.34rem 0.5rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.admin-cover-upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.admin-cover-preview {
+  margin: 0.45rem 0;
+  padding: 0.55rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: var(--surface-alt);
+}
+
+.admin-cover-preview-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-subtle);
+  margin-bottom: 0.35rem;
+}
+
+.admin-cover-thumb {
+  max-width: 100%;
+  max-height: 12rem;
+  object-fit: cover;
+  border-radius: calc(var(--panel-radius) - 1px);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.admin-cover-badge {
+  display: inline-block;
+  padding: 0.3rem 0.55rem;
+  border-radius: var(--panel-radius);
+  background: var(--surface);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
 #uploadFileInput {
   padding-right: 0.4rem;
 }

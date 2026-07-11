@@ -37,6 +37,17 @@
   const adminCreateSection = document.getElementById("adminCreateSection");
   const adminAntispamSection = document.getElementById("adminAntispamSection");
   const addBlockButtons = Array.from(document.querySelectorAll("[data-add-block]"));
+  const coverModeRadios = Array.from(document.querySelectorAll("[data-cover-mode]"));
+  const coverFromBlocksWrap = document.getElementById("coverFromBlocksWrap");
+  const coverBlockSelect = document.getElementById("coverBlockSelect");
+  const coverUploadWrap = document.getElementById("coverUploadWrap");
+  const coverUploadInput = document.getElementById("coverUploadInput");
+  const coverUploadButton = document.getElementById("coverUploadButton");
+  const coverUploadStatus = document.getElementById("coverUploadStatus");
+  const coverPreview = document.getElementById("coverPreview");
+  const coverPreviewContent = document.getElementById("coverPreviewContent");
+  const coverPreviewLabel = document.getElementById("coverPreviewLabel");
+  const coverRemoveButton = document.getElementById("coverRemoveButton");
 
   if (
     !adminLoginForm ||
@@ -59,6 +70,7 @@
   let draftDirty = false;
   let adminCsrfToken = "";
   let previewRenderQueued = false;
+  let selectedCover = null;
   const collapsedBlocks = new WeakSet();
 
   function parseQueryParam(name) {
@@ -919,6 +931,7 @@
     });
 
     syncEmptyState();
+    refreshCoverBlockSelect();
   }
 
   function renderPostPreview() {
@@ -1220,6 +1233,169 @@
     schedulePostPreviewRender();
   });
 
+  function refreshCoverBlockSelect() {
+    if (!coverBlockSelect) return;
+    const mediaBlocks = draftBlocks
+      .map((block, index) => ({ block, index }))
+      .filter(({ block }) => block && block.type === "media" && block.src);
+
+    coverBlockSelect.innerHTML = "";
+
+    if (mediaBlocks.length === 0) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = t("admin.coverNoMediaBlocks", null, "No media blocks in the post");
+      option.disabled = true;
+      option.selected = true;
+      coverBlockSelect.appendChild(option);
+      return;
+    }
+
+    mediaBlocks.forEach(({ block, index }) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = (block.name || block.src || "Block " + (index + 1)) + " (" + (block.mediaKind || "media") + ")";
+      coverBlockSelect.appendChild(option);
+    });
+  }
+
+  function updateCoverPreview(cover) {
+    if (!coverPreview || !coverPreviewContent || !coverPreviewLabel) return;
+    if (!cover) {
+      coverPreview.hidden = true;
+      return;
+    }
+    coverPreview.hidden = false;
+    coverPreviewContent.innerHTML = "";
+
+    const mediaKind = asText(cover.mediaKind);
+    const src = safeMediaSrc(cover.src);
+    if (!src || !ALLOWED_MEDIA_KINDS.has(mediaKind)) return;
+
+    if (mediaKind === "image" || mediaKind === "gif") {
+      const img = document.createElement("img");
+      img.className = "admin-cover-thumb";
+      img.src = src;
+      img.alt = asText(cover.alt) || "";
+      coverPreviewContent.appendChild(img);
+    } else {
+      const badge = document.createElement("span");
+      badge.className = "admin-cover-badge";
+      badge.textContent = mediaKind.toUpperCase() + ": " + (asText(cover.name) || asText(cover.src) || "");
+      coverPreviewContent.appendChild(badge);
+    }
+  }
+
+  function setCover(cover) {
+    selectedCover = cover;
+    updateCoverPreview(cover);
+    if (cover) {
+      const autoRadio = coverModeRadios.find((r) => r.value === "auto");
+      if (autoRadio) autoRadio.checked = false;
+    }
+  }
+
+  function clearCover() {
+    selectedCover = null;
+    updateCoverPreview(null);
+    const autoRadio = coverModeRadios.find((r) => r.value === "auto");
+    if (autoRadio) autoRadio.checked = true;
+    if (coverFromBlocksWrap) coverFromBlocksWrap.hidden = true;
+    if (coverUploadWrap) coverUploadWrap.hidden = true;
+  }
+
+  function syncCoverModeUi() {
+    const activeRadio = coverModeRadios.find((r) => r.checked);
+    const mode = activeRadio ? activeRadio.value : "auto";
+
+    if (coverFromBlocksWrap) {
+      coverFromBlocksWrap.hidden = mode !== "from-blocks";
+    }
+    if (coverUploadWrap) {
+      coverUploadWrap.hidden = mode !== "upload";
+    }
+    if (mode === "auto") {
+      clearCover();
+    } else if (mode === "from-blocks") {
+      refreshCoverBlockSelect();
+      const selectedIndex = Number(coverBlockSelect ? coverBlockSelect.value : -1);
+      const block = draftBlocks[selectedIndex];
+      if (block && block.type === "media") {
+        setCover({
+          src: asText(block.src) || "",
+          mediaKind: asText(block.mediaKind) || "",
+          alt: asText(block.alt) || "",
+          caption: asText(block.caption) || "",
+          name: asText(block.name) || ""
+        });
+      }
+    }
+  }
+
+  coverModeRadios.forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (radio.checked) syncCoverModeUi();
+    });
+  });
+
+  if (coverBlockSelect) {
+    coverBlockSelect.addEventListener("change", () => {
+      const index = Number(coverBlockSelect.value);
+      if (!Number.isFinite(index)) {
+        clearCover();
+        return;
+      }
+      const block = draftBlocks[index];
+      if (block && block.type === "media") {
+        setCover({
+          src: asText(block.src) || "",
+          mediaKind: asText(block.mediaKind) || "",
+          alt: asText(block.alt) || "",
+          caption: asText(block.caption) || "",
+          name: asText(block.name) || ""
+        });
+      }
+    });
+  }
+
+  if (coverUploadButton && coverUploadInput) {
+    coverUploadButton.addEventListener("click", async () => {
+      const file = coverUploadInput.files && coverUploadInput.files[0];
+      if (!file) {
+        if (coverUploadStatus) setStatus(coverUploadStatus, t("admin.chooseFile", null, "Choose a file first."), true);
+        return;
+      }
+
+      if (!(await ensureActiveAdminSession())) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        if (coverUploadStatus) setStatus(coverUploadStatus, t("admin.uploading", null, "Uploading..."), false);
+        const data = await requestJson("/upload", {
+          method: "POST",
+          body: formData
+        });
+
+        if (coverUploadStatus) setStatus(coverUploadStatus, t("admin.uploadSuccess", null, "Upload successful."), false);
+        coverUploadInput.value = "";
+
+        setCover({
+          src: asText(data.url) || "",
+          mediaKind: asText(data.mediaKind) || "",
+          name: asText(data.originalName) || deriveFileName(data.url)
+        });
+      } catch (error) {
+        if (coverUploadStatus) setStatus(coverUploadStatus, translateErrorMessage(error, "admin.uploadFailed", "Upload failed."), true);
+      }
+    });
+  }
+
+  if (coverRemoveButton) {
+    coverRemoveButton.addEventListener("click", clearCover);
+  }
+
   postForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const isEditing = editingPostId !== null;
@@ -1284,7 +1460,8 @@
         },
         body: JSON.stringify({
           title,
-          blocks: normalizedBlocks
+          blocks: normalizedBlocks,
+          preview_media: selectedCover
         })
       });
 
@@ -1376,6 +1553,18 @@
         renderBlockEditor();
         syncBlocksJson();
         schedulePostPreviewRender();
+
+        if (data.preview_media && typeof data.preview_media === "object" && data.preview_media.src) {
+          selectedCover = {
+            src: asText(data.preview_media.src) || "",
+            mediaKind: asText(data.preview_media.mediaKind) || "",
+            alt: asText(data.preview_media.alt) || "",
+            caption: asText(data.preview_media.caption) || "",
+            name: asText(data.preview_media.name) || ""
+          };
+          updateCoverPreview(selectedCover);
+        }
+
         enterEditMode(data.id);
         setStatus(postStatus, t("admin.editTitle", null, "Edit post"), false);
       } catch (error) {
