@@ -48,6 +48,7 @@
       "audio.waveformFallback": "Waveform недоступен, показан обычный прогресс.",
       "audio.playFailed": "Не удалось запустить воспроизведение.",
       "audio.closePlayer": "Закрыть плеер",
+      "audio.volume": "Громкость",
       "feed.title": "Посты",
       "feed.subtitle": "Обратная хронология",
       "feed.loading": "Загрузка ленты...",
@@ -83,6 +84,11 @@
       "post.commentLabel": "Комментарий",
       "post.commentPlaceholder": "Оставьте сообщение...",
       "post.reply": "Ответить",
+      "post.commentLikeAria": "Поставить лайк этому комментарию",
+      "post.commentLikeCount": "{count} лайк(ов)",
+      "post.commentLikeSuccess": "Лайк сохранен.",
+      "post.commentLikeMissing": "Комментарий больше не существует.",
+      "post.commentLikeError": "Не удалось сохранить лайк.",
       "post.cancelReply": "Отмена",
       "post.replyPlaceholder": "Напишите ответ...",
       "post.sendReply": "Отправить ответ",
@@ -273,6 +279,7 @@
       "audio.waveformFallback": "Waveform unavailable. Showing progress bar.",
       "audio.playFailed": "Unable to start playback.",
       "audio.closePlayer": "Close player",
+      "audio.volume": "Volume",
       "feed.title": "Posts",
       "feed.subtitle": "Reverse chronological timeline",
       "feed.loading": "Loading timeline...",
@@ -308,6 +315,11 @@
       "post.commentLabel": "Comment",
       "post.commentPlaceholder": "Leave a note...",
       "post.reply": "Reply",
+      "post.commentLikeAria": "Like this comment",
+      "post.commentLikeCount": "{count} like(s)",
+      "post.commentLikeSuccess": "Like saved.",
+      "post.commentLikeMissing": "This comment no longer exists.",
+      "post.commentLikeError": "Failed to save like.",
       "post.cancelReply": "Cancel",
       "post.replyPlaceholder": "Write a reply...",
       "post.sendReply": "Send Reply",
@@ -640,6 +652,12 @@
     }
 
     if (message.startsWith("You already liked this post recently. Please wait about ")) {
+      const matched = message.match(/(\d+)/);
+      const seconds = matched ? matched[1] : "?";
+      return t("errors.likeCooldown", { seconds });
+    }
+
+    if (message.startsWith("You already liked this comment recently. Please wait about ")) {
       const matched = message.match(/(\d+)/);
       const seconds = matched ? matched[1] : "?";
       return t("errors.likeCooldown", { seconds });

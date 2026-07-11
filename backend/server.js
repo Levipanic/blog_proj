@@ -1428,7 +1428,7 @@ app.get("/comments/:post_id", async (req, res, next) => {
     const limit = Math.min(20, parsedLimit);
 
     let sql =
-      "SELECT id, post_id, parent_id, name, content, created_at FROM comments WHERE post_id = ? ORDER BY datetime(created_at) " +
+      "SELECT id, post_id, parent_id, name, content, likes_count, created_at FROM comments WHERE post_id = ? ORDER BY datetime(created_at) " +
       order +
       ", id " +
       order;
@@ -1572,6 +1572,57 @@ app.delete("/comments/:id", requireAdminSession, async (req, res, next) => {
       ok: true,
       id: existingComment.id,
       post_id: existingComment.post_id
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/comments/:id/like", likeLimiter, async (req, res, next) => {
+  try {
+    const commentId = parsePositiveCommentId(req.params.id);
+    if (!commentId) {
+      return res.status(400).json({ error: "Invalid comment id." });
+    }
+
+    const comment = await get("SELECT id FROM comments WHERE id = ?", [commentId]);
+    if (!comment) {
+      return res.status(404).json({ error: "Comment not found." });
+    }
+
+    const ipAddress = getClientIp(req);
+    const ipHash = hashIpAddress(ipAddress);
+    const recentLike = await get(
+      "SELECT created_at FROM comment_like_events WHERE comment_id = ? AND ip_hash = ? ORDER BY datetime(created_at) DESC, id DESC LIMIT 1",
+      [commentId, ipHash]
+    );
+
+    if (recentLike) {
+      const recentLikeMillis = parseUtcMillis(recentLike.created_at);
+      if (recentLikeMillis > 0) {
+        const retryAtMillis = recentLikeMillis + likeCooldownMs;
+        if (Date.now() < retryAtMillis) {
+          const retryAfterSeconds = Math.max(1, Math.ceil((retryAtMillis - Date.now()) / 1000));
+          return res.status(429).json({
+            error: `You already liked this comment recently. Please wait about ${retryAfterSeconds} seconds.`
+          });
+        }
+      }
+    }
+
+    await run("INSERT INTO comment_like_events (comment_id, ip_hash, created_at) VALUES (?, ?, datetime('now'))", [
+      commentId,
+      ipHash
+    ]);
+    await run("UPDATE comments SET likes_count = likes_count + 1 WHERE id = ?", [commentId]);
+    await run("DELETE FROM comment_like_events WHERE datetime(created_at) < datetime('now', '-14 day')");
+
+    const updatedComment = await get("SELECT likes_count FROM comments WHERE id = ?", [commentId]);
+
+    res.json({
+      success: true,
+      commentId,
+      likes: asLikeCount(updatedComment && updatedComment.likes_count)
     });
   } catch (error) {
     next(error);

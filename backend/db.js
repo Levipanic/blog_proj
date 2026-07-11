@@ -108,6 +108,11 @@ async function initDb() {
     await run("ALTER TABLE comments ADD COLUMN parent_id INTEGER");
   }
 
+  const hasCommentLikesCountColumn = commentColumnsAfterCreate.some((column) => column.name === "likes_count");
+  if (!hasCommentLikesCountColumn) {
+    await run("ALTER TABLE comments ADD COLUMN likes_count INTEGER NOT NULL DEFAULT 0");
+  }
+
   await run(`
     CREATE INDEX IF NOT EXISTS idx_comments_post_parent
     ON comments(post_id, parent_id, id)
@@ -126,6 +131,21 @@ async function initDb() {
   await run(`
     CREATE INDEX IF NOT EXISTS idx_like_events_post_ip_created
     ON like_events(post_id, ip_hash, created_at)
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS comment_like_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comment_id INTEGER NOT NULL,
+      ip_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comment_like_events_comment_ip_created
+    ON comment_like_events(comment_id, ip_hash, created_at)
   `);
 
   await run(`

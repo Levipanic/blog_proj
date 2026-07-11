@@ -34,6 +34,7 @@ const BLOG_HANDLE = "@stereodamage";
 const PLACEHOLDER_IMAGE = "/uploads/missingno.png";
 const ALLOWED_MEDIA_KINDS = new Set(["image", "gif", "video", "audio", "file"]);
 const AUDIO_SESSION_STORAGE_KEY = "stereodamage_audio_session_v1";
+const AUDIO_VOLUME_STORAGE_KEY = "stereodamage_audio_volume_v1";
 const AUDIO_WAVEFORM_BAR_COUNT = 56;
 const MAX_COMMENT_LENGTH = 1000;
 const COMMENT_COLLAPSE_PREVIEW_LENGTH = 280;
@@ -318,6 +319,20 @@ function scrollToReadingPosition(top) {
     top: Math.max(0, Number(top) || 0),
     behavior: isSmoothScrollEnabled() ? "smooth" : "auto"
   });
+}
+
+function normalizeAudioVolume(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 1;
+  return clamp01(number);
+}
+
+function readSavedAudioVolume() {
+  return normalizeAudioVolume(readStringStorage(AUDIO_VOLUME_STORAGE_KEY, "1"));
+}
+
+function saveAudioVolume(volume) {
+  writeStringStorage(AUDIO_VOLUME_STORAGE_KEY, String(normalizeAudioVolume(volume)));
 }
 
 function readProgressMap() {
@@ -804,6 +819,7 @@ function buildWaveformBarsFromAudio(audioBuffer, barCount) {
 function createGlobalAudioPlayback() {
   const audioElement = new Audio();
   audioElement.preload = "metadata";
+  audioElement.volume = readSavedAudioVolume();
 
   const listeners = new Set();
   const waveformCache = new Map();
@@ -966,6 +982,7 @@ function createGlobalAudioPlayback() {
       progress: duration > 0 ? clamp01(currentTime / duration) : 0,
       metadataStatus: state.metadataStatus,
       errorMessage: state.errorMessage,
+      volume: audioElement.volume,
       waveformStatus: waveform.status,
       waveformBars: waveform.bars,
       waveformError: waveform.error || ""
@@ -1195,6 +1212,13 @@ function createGlobalAudioPlayback() {
     emit();
   }
 
+  function setVolume(rawVolume) {
+    const volume = normalizeAudioVolume(rawVolume);
+    audioElement.volume = volume;
+    saveAudioVolume(volume);
+    emit();
+  }
+
   function getTrackState(rawTrack) {
     const track = createAudioTrackDescriptor(rawTrack);
     if (!track) {
@@ -1228,6 +1252,7 @@ function createGlobalAudioPlayback() {
       progress: duration > 0 ? clamp01(currentTime / duration) : 0,
       metadataStatus: isActive ? state.metadataStatus : duration > 0 ? "ready" : "idle",
       errorMessage: isActive ? state.errorMessage : "",
+      volume: audioElement.volume,
       waveformStatus: waveform.status,
       waveformBars: waveform.bars,
       waveformError: waveform.error || ""
@@ -1384,6 +1409,7 @@ function createGlobalAudioPlayback() {
     resume,
     toggle,
     seekToFraction,
+    setVolume,
     stopAndClear,
     restoreFromSession
   };
@@ -1776,6 +1802,28 @@ function initPersistentAudioUi() {
   closeButton.textContent = "x";
   mainRow.appendChild(closeButton);
 
+  const volumeWrap = document.createElement("label");
+  volumeWrap.className = "mini-audio-volume";
+  volumeWrap.setAttribute("aria-label", t("audio.volume", null, "Volume"));
+
+  const volumeIcon = document.createElement("span");
+  volumeIcon.className = "mini-audio-volume-icon";
+  volumeIcon.textContent = "vol";
+  volumeIcon.setAttribute("aria-hidden", "true");
+  volumeWrap.appendChild(volumeIcon);
+
+  const volumeInput = document.createElement("input");
+  volumeInput.type = "range";
+  volumeInput.className = "mini-audio-volume-slider";
+  volumeInput.min = "0";
+  volumeInput.max = "1";
+  volumeInput.step = "0.01";
+  volumeInput.value = String(readSavedAudioVolume());
+  volumeInput.setAttribute("aria-label", t("audio.volume", null, "Volume"));
+  volumeWrap.appendChild(volumeInput);
+
+  miniPlayer.appendChild(volumeWrap);
+
   const progressButton = document.createElement("button");
   progressButton.type = "button";
   progressButton.className = "mini-audio-progress";
@@ -1851,6 +1899,7 @@ function initPersistentAudioUi() {
     toggleButton.title = playing ? t("audio.pause", null, "Pause") : t("audio.play", null, "Play");
 
     miniPlayer.classList.toggle("is-error", snapshot.metadataStatus === "error");
+    volumeInput.value = String(normalizeAudioVolume(snapshot.volume));
   }
 
   toggleButton.addEventListener("click", () => {
@@ -1875,6 +1924,10 @@ function initPersistentAudioUi() {
     if (!activeState || !(activeState.duration > 0)) return;
     const fraction = getPointerFraction(event, progressButton);
     audioPlayback.seekToFraction(fraction);
+  });
+
+  volumeInput.addEventListener("input", () => {
+    audioPlayback.setVolume(volumeInput.value);
   });
 
   audioPlayback.subscribe((snapshot) => {
@@ -2142,6 +2195,87 @@ function createLikeControl(postId, initialLikes, options) {
         status.textContent = t("feed.likeMissing", null, "This post no longer exists.");
       } else {
         status.textContent = translateErrorMessage(error, "feed.likeError", "Failed to save like.");
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  return wrap;
+}
+
+function createCommentLikeControl(commentId, initialLikes) {
+  const wrap = document.createElement("div");
+  wrap.className = "comment-like-row";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "comment-like-button";
+  wrap.appendChild(button);
+
+  const emoji = document.createElement("span");
+  emoji.className = "like-emoji";
+  emoji.textContent = "❤️";
+  emoji.setAttribute("aria-hidden", "true");
+  button.appendChild(emoji);
+
+  const count = document.createElement("span");
+  count.className = "comment-like-count";
+  button.appendChild(count);
+
+  const status = document.createElement("span");
+  status.className = "comment-like-status";
+  status.setAttribute("aria-live", "polite");
+  wrap.appendChild(status);
+
+  let likes = normalizeLikeCount(initialLikes);
+
+  function applyLikeState() {
+    const likeText = t("post.commentLikeCount", { count: likes }, likes + " like(s)");
+    count.textContent = String(likes);
+    button.setAttribute(
+      "aria-label",
+      t("post.commentLikeAria", null, "Like this comment") + ". " + likeText
+    );
+  }
+
+  function playLikeBurst() {
+    const heart = document.createElement("span");
+    heart.className = "like-burst-heart";
+    heart.textContent = "❤️";
+    heart.setAttribute("aria-hidden", "true");
+    wrap.appendChild(heart);
+    heart.addEventListener("animationend", () => {
+      heart.remove();
+    });
+  }
+
+  applyLikeState();
+
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    status.textContent = t("feed.sending", null, "Sending...");
+
+    try {
+      const result = await fetchJson("/comments/" + encodeURIComponent(commentId) + "/like", {
+        method: "POST"
+      });
+      likes = normalizeLikeCount(result && result.likes);
+      applyLikeState();
+      playLikeBurst();
+      const successMessage = t("post.commentLikeSuccess", null, "Like saved.");
+      status.textContent = successMessage;
+      window.setTimeout(() => {
+        if (status.textContent === successMessage) {
+          status.textContent = "";
+        }
+      }, 1800);
+    } catch (error) {
+      if (error && error.status === 404) {
+        status.textContent = t("post.commentLikeMissing", null, "This comment no longer exists.");
+      } else {
+        status.textContent = translateErrorMessage(error, "post.commentLikeError", "Failed to save like.");
       }
     } finally {
       button.disabled = false;
@@ -2745,6 +2879,7 @@ function normalizeClientComment(rawComment) {
     parent_id: parentId,
     name: asText(rawComment.name),
     content: asText(rawComment.content),
+    likes: normalizeLikeCount(rawComment.likes_count),
     created_at: asText(rawComment.created_at),
     replies: []
   };
@@ -2875,16 +3010,17 @@ function renderCommentNode(commentNode, depth, options) {
   li.appendChild(head);
   li.appendChild(renderCommentBody(commentNode.content));
 
-  if (canReply) {
-    const controls = document.createElement("div");
-    controls.className = "comment-controls";
+  const controls = document.createElement("div");
+  controls.className = "comment-controls";
+  controls.appendChild(createCommentLikeControl(commentNode.id, commentNode.likes));
+  li.appendChild(controls);
 
+  if (canReply) {
     const replyToggleButton = document.createElement("button");
     replyToggleButton.type = "button";
     replyToggleButton.className = "comment-reply-button";
     replyToggleButton.textContent = t("post.reply", null, "Reply");
     controls.appendChild(replyToggleButton);
-    li.appendChild(controls);
 
     const replyForm = document.createElement("form");
     replyForm.className = "comment-reply-form";
