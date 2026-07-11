@@ -1347,6 +1347,8 @@ function validateAndNormalizePostBlock(rawBlock, index) {
   return { error: `${fieldPrefix}.type is invalid.` };
 }
 
+const ALLOWED_MEDIA_KINDS = new Set(["image", "video", "audio", "unknown"]);
+
 function validatePreviewMedia(value) {
   if (value === null || value === undefined) return null;
 
