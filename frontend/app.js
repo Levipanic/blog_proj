@@ -2668,12 +2668,10 @@ async function initFeedPage() {
       comments.forEach((comment) => {
         const item = document.createElement("li");
         item.className = "reply-item";
-        const safeName = escapeHtml(comment.name || t("common.anonymous", null, "Anonymous"));
-        const safePreview = escapeHtml(previewText(comment.content || "", 90));
         if (adminAuthenticated) {
           const text = document.createElement("span");
           text.className = "reply-item-text";
-          text.innerHTML = safeName + ": " + safePreview;
+          text.textContent = (comment.name || t("common.anonymous", null, "Anonymous")) + ": " + previewText(comment.content || "", 90);
           item.appendChild(text);
 
           const deleteCommentButton = createCommentDeleteButton(
@@ -2686,7 +2684,7 @@ async function initFeedPage() {
           );
           item.appendChild(deleteCommentButton);
         } else {
-          item.innerHTML = safeName + ": " + safePreview;
+          item.textContent = (comment.name || t("common.anonymous", null, "Anonymous")) + ": " + previewText(comment.content || "", 90);
         }
         list.appendChild(item);
       });

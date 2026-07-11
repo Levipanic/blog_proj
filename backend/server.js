@@ -110,6 +110,7 @@ const commentMuteSeconds = getPositiveInt(process.env.COMMENT_MUTE_SECONDS, 30 *
 const commentHoneypotMuteThreshold = getPositiveInt(process.env.COMMENT_HONEYPOT_MUTE_THRESHOLD, 2);
 const commentRejectedMuteThreshold = getPositiveInt(process.env.COMMENT_REJECTED_MUTE_THRESHOLD, 12);
 const commentAttemptContentMaxLength = getPositiveInt(process.env.COMMENT_ATTEMPT_CONTENT_MAX_LENGTH, 500);
+const commentAttemptsTtlHours = getPositiveInt(process.env.COMMENT_ATTEMPTS_TTL_HOURS, 24);
 const commentAdminListLimit = getPositiveInt(process.env.COMMENT_ADMIN_LIST_LIMIT, 40);
 const commentPostRateLimitWindowSeconds = getPositiveInt(
   process.env.COMMENT_POST_RATE_LIMIT_WINDOW_SECONDS,
@@ -222,7 +223,6 @@ const adminPostLimiter = rateLimit({
   message: { error: "Too many post creation attempts. Please wait a few minutes and try again." }
 });
 
-const allowedMediaKinds = new Set(["image", "gif", "video", "audio", "file"]);
 const maxUploadSizeBytes = 25 * 1024 * 1024;
 const maxPostTitleLength = 160;
 
@@ -726,6 +726,12 @@ async function recordCommentAttempt({ ipHash, postId, status, reason, content, t
 async function cleanupCommentChallenges() {
   await run("DELETE FROM comment_challenge_uses WHERE datetime(last_used_at) < datetime('now', ?)", [
     sqlSecondsWindow(commentChallengeTtlSeconds * 2)
+  ]);
+}
+
+async function cleanupExpiredCommentAttempts() {
+  await run("DELETE FROM comment_attempts WHERE datetime(created_at) < datetime('now', ?)", [
+    `-${commentAttemptsTtlHours} hours`
   ]);
 }
 
@@ -1234,12 +1240,15 @@ function normalizeBlock(rawBlock) {
   if (type === "media") {
     const mediaKind = asText(rawBlock.mediaKind);
     const src = safeMediaSrc(rawBlock.src);
-    if (!allowedMediaKinds.has(mediaKind) || !src) return null;
+    if (!ALLOWED_MEDIA_KINDS.has(mediaKind) || !src) return null;
+
+    const spoiler = rawBlock.spoiler === true;
 
     const block = {
       type: "media",
       mediaKind,
-      src
+      src,
+      spoiler
     };
 
     const name = asText(rawBlock.name);
@@ -1268,61 +1277,42 @@ function validateAndNormalizePostBlock(rawBlock, index) {
     return { error: `${fieldPrefix}.type is required.` };
   }
 
-  if (type === "paragraph" || type === "quote") {
-    const text = asText(rawBlock.text);
-    if (!text) {
-      return { error: `${fieldPrefix}.text is required for ${type}.` };
+  const block = normalizeBlock(rawBlock);
+  if (!block) {
+    if (type === "paragraph" || type === "quote") {
+      if (!asText(rawBlock.text)) {
+        return { error: `${fieldPrefix}.text is required for ${type}.` };
+      }
     }
-    if (text.length > maxPostTextLength) {
-      return { error: `${fieldPrefix}.text must be at most ${maxPostTextLength} characters.` };
+    if (type === "heading") {
+      if (!asText(rawBlock.text)) {
+        return { error: `${fieldPrefix}.text is required for heading.` };
+      }
+      if (![1, 2, 3].includes(Number(rawBlock.level))) {
+        return { error: `${fieldPrefix}.level must be 1, 2, or 3.` };
+      }
     }
-    return { block: { type, text } };
+    if (type === "media") {
+      if (!asText(rawBlock.mediaKind)) {
+        return { error: `${fieldPrefix}.mediaKind is required for media.` };
+      }
+      if (!ALLOWED_MEDIA_KINDS.has(asText(rawBlock.mediaKind))) {
+        return { error: `${fieldPrefix}.mediaKind is invalid.` };
+      }
+      if (!safeMediaSrc(rawBlock.src)) {
+        return { error: `${fieldPrefix}.src must be a local /uploads/... path.` };
+      }
+    }
+    return { error: `${fieldPrefix}.type is invalid.` };
   }
 
-  if (type === "heading") {
-    const text = asText(rawBlock.text);
-    const level = Number(rawBlock.level);
-    if (!text) {
-      return { error: `${fieldPrefix}.text is required for heading.` };
-    }
-    if (![1, 2, 3].includes(level)) {
-      return { error: `${fieldPrefix}.level must be 1, 2, or 3.` };
-    }
-    if (text.length > maxPostTextLength) {
+  if (type === "paragraph" || type === "quote" || type === "heading") {
+    if (block.text && block.text.length > maxPostTextLength) {
       return { error: `${fieldPrefix}.text must be at most ${maxPostTextLength} characters.` };
     }
-    return { block: { type: "heading", level, text } };
-  }
-
-  if (type === "divider") {
-    return { block: { type: "divider" } };
   }
 
   if (type === "media") {
-    const mediaKind = asText(rawBlock.mediaKind);
-    const src = safeMediaSrc(rawBlock.src);
-
-    if (!mediaKind) {
-      return { error: `${fieldPrefix}.mediaKind is required for media.` };
-    }
-
-    if (!allowedMediaKinds.has(mediaKind)) {
-      return { error: `${fieldPrefix}.mediaKind is invalid.` };
-    }
-
-    if (!src) {
-      return { error: `${fieldPrefix}.src must be a local /uploads/... path.` };
-    }
-
-    const spoiler = rawBlock.spoiler === true;
-
-    const block = {
-      type: "media",
-      mediaKind,
-      src,
-      spoiler
-    };
-
     const name = asText(rawBlock.name);
     const alt = asText(rawBlock.alt);
     const caption = asText(rawBlock.caption);
@@ -1336,18 +1326,12 @@ function validateAndNormalizePostBlock(rawBlock, index) {
     if (caption.length > maxPostMediaTextLength) {
       return { error: `${fieldPrefix}.caption must be at most ${maxPostMediaTextLength} characters.` };
     }
-
-    if (name) block.name = name;
-    if (alt) block.alt = alt;
-    if (caption) block.caption = caption;
-
-    return { block };
   }
 
-  return { error: `${fieldPrefix}.type is invalid.` };
+  return { block };
 }
 
-const ALLOWED_MEDIA_KINDS = new Set(["image", "video", "audio", "unknown"]);
+const ALLOWED_MEDIA_KINDS = new Set(["image", "gif", "video", "audio", "file"]);
 
 function validatePreviewMedia(value) {
   if (value === null || value === undefined) return null;
@@ -1499,7 +1483,7 @@ function getPreviewMedia(blocks) {
     audioBlock ||
     blocks.find(
       (item) =>
-        item.type === "media" && allowedMediaKinds.has(item.mediaKind) && item.src
+        item.type === "media" && ALLOWED_MEDIA_KINDS.has(item.mediaKind) && item.src
     );
 
   if (!block) {
@@ -2379,6 +2363,8 @@ async function start() {
   }
 
   await initDb();
+  cleanupExpiredCommentAttempts();
+  setInterval(cleanupExpiredCommentAttempts, 60 * 60 * 1000);
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
   });
