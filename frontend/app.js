@@ -539,18 +539,33 @@ function renderPostToc(blocksWrap) {
     return;
   }
 
+  const tocLabel = t("post.toc", null, "Table of contents");
+
   const details = document.createElement("details");
   details.className = "post-toc-details";
 
   const summary = document.createElement("summary");
   summary.className = "post-toc-summary";
-  summary.textContent = t("post.toc", null, "Table of contents");
+  summary.textContent = tocLabel;
   details.appendChild(summary);
 
   const list = document.createElement("ol");
   list.className = "post-toc-list";
 
   const usedIds = new Set();
+  const linkItems = [];
+
+  function makeTocClickHandler(heading, closeOnClick) {
+    return (event) => {
+      event.preventDefault();
+      const top = heading.getBoundingClientRect().top + (window.scrollY || window.pageYOffset || 0) - 56;
+      scrollToReadingPosition(top);
+      if (closeOnClick) {
+        details.open = false;
+      }
+    };
+  }
+
   headings.forEach((heading, index) => {
     let id = heading.id || slugifyHeading(heading.textContent, index);
     while (usedIds.has(id)) {
@@ -565,18 +580,12 @@ function renderPostToc(blocksWrap) {
     const link = document.createElement("a");
     link.className = "post-toc-link";
     link.href = "#" + encodeURIComponent(id);
-    link.textContent = heading.textContent || t("post.toc", null, "Table of contents");
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      const top = heading.getBoundingClientRect().top + (window.scrollY || window.pageYOffset || 0) - 56;
-      scrollToReadingPosition(top);
-      if (window.matchMedia && window.matchMedia("(max-width: 979px)").matches) {
-        details.open = false;
-      }
-    });
+    link.textContent = heading.textContent || tocLabel;
+    link.addEventListener("click", makeTocClickHandler(heading, true));
 
     item.appendChild(link);
     list.appendChild(item);
+    linkItems.push({ heading, link, sheetLink: null });
   });
 
   details.appendChild(list);
@@ -595,6 +604,108 @@ function renderPostToc(blocksWrap) {
     } else if (typeof mediaQuery.addListener === "function") {
       mediaQuery.addListener(syncTocMode);
     }
+  }
+
+  let activeLink = null;
+  let activeSheetLink = null;
+  function setActiveLink(newLink) {
+    if (activeLink) {
+      activeLink.classList.remove("post-toc-link-active");
+    }
+    if (activeSheetLink) {
+      activeSheetLink.classList.remove("post-toc-link-active");
+      activeSheetLink = null;
+    }
+    if (newLink) {
+      newLink.classList.add("post-toc-link-active");
+      const item = linkItems.find((li) => li.link === newLink);
+      if (item && item.sheetLink) {
+        item.sheetLink.classList.add("post-toc-link-active");
+        activeSheetLink = item.sheetLink;
+      }
+    }
+    activeLink = newLink;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    let bestEntry = null;
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      if (!bestEntry || entry.boundingClientRect.top < bestEntry.boundingClientRect.top) {
+        bestEntry = entry;
+      }
+    });
+    if (bestEntry) {
+      const matched = linkItems.find((li) => li.heading === bestEntry.target);
+      if (matched && matched.link !== activeLink) {
+        setActiveLink(matched.link);
+      }
+    }
+  }, {
+    rootMargin: "-64px 0px -40% 0px",
+    threshold: 0
+  });
+
+  linkItems.forEach((li) => observer.observe(li.heading));
+
+  const existingMobileToc = document.querySelector(".post-toc-floating-btn");
+  if (existingMobileToc) {
+    const oldOverlay = document.querySelector(".post-toc-sheet-overlay");
+    const oldSheet = document.querySelector(".post-toc-sheet");
+    if (oldOverlay) oldOverlay.remove();
+    if (oldSheet) oldSheet.remove();
+    existingMobileToc.remove();
+  }
+
+  const isMobile = window.matchMedia && window.matchMedia("(max-width: 979px)").matches;
+  if (!isMobile) return;
+
+  const floatingBtn = document.createElement("button");
+  floatingBtn.className = "post-toc-floating-btn";
+  floatingBtn.setAttribute("aria-label", tocLabel);
+  floatingBtn.textContent = "☰ " + tocLabel;
+
+  const overlay = document.createElement("div");
+  overlay.className = "post-toc-sheet-overlay";
+
+  const sheet = document.createElement("div");
+  sheet.className = "post-toc-sheet";
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-label", tocLabel);
+
+  const sheetTitle = document.createElement("div");
+  sheetTitle.className = "post-toc-sheet-title";
+  sheetTitle.textContent = tocLabel;
+
+  const sheetList = list.cloneNode(true);
+  const sheetLinks = sheetList.querySelectorAll(".post-toc-link");
+  sheetLinks.forEach((sl, i) => {
+    const li = linkItems[i];
+    if (li) {
+      li.sheetLink = sl;
+      sl.addEventListener("click", makeTocClickHandler(li.heading, false));
+      sl.addEventListener("click", closeSheet);
+    }
+  });
+
+  sheet.appendChild(sheetTitle);
+  sheet.appendChild(sheetList);
+
+  document.body.appendChild(floatingBtn);
+  document.body.appendChild(overlay);
+  document.body.appendChild(sheet);
+
+  floatingBtn.addEventListener("click", openSheet);
+  overlay.addEventListener("click", closeSheet);
+
+  function openSheet() {
+    sheet.classList.add("is-open");
+    overlay.classList.add("is-open");
+  }
+
+  function closeSheet() {
+    sheet.classList.remove("is-open");
+    overlay.classList.remove("is-open");
   }
 }
 
