@@ -663,6 +663,56 @@ body.has-mini-audio-player .post-toc-floating-btn {
   }
 }
 
+.media-spoiler {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: var(--panel-radius);
+}
+
+.media-spoiler-content {
+  filter: blur(24px);
+  pointer-events: none;
+  user-select: none;
+  transition: filter 0.28s ease;
+  transform: scale(1.04);
+}
+
+.media-spoiler-revealed .media-spoiler-content {
+  filter: none;
+  pointer-events: auto;
+  user-select: auto;
+  transform: none;
+}
+
+.media-spoiler-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: opacity 0.28s ease;
+}
+
+.media-spoiler-revealed .media-spoiler-overlay {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.admin-block-spoiler {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.84rem;
+  margin-top: 0.4rem;
+  cursor: pointer;
+}
+
 .admin-panel {
   width: 100%;
   max-width: 56rem;

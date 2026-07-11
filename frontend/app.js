@@ -2139,6 +2139,7 @@ function normalizeClientBlock(rawBlock) {
       type: "media",
       mediaKind,
       src,
+      spoiler: rawBlock.spoiler === true,
       name: asText(rawBlock.name),
       alt: asText(rawBlock.alt),
       caption: asText(rawBlock.caption)
@@ -2998,6 +2999,33 @@ function renderPostBlock(block) {
   return null;
 }
 
+function applyMediaSpoiler(element, block) {
+  if (!block.spoiler) return element;
+
+  const wrap = document.createElement("div");
+  wrap.className = "media-spoiler";
+
+  const overlay = document.createElement("div");
+  overlay.className = "media-spoiler-overlay";
+  overlay.textContent = t("post.spoilerReveal", null, "Spoiler — click to reveal");
+
+  const contentWrap = document.createElement("div");
+  contentWrap.className = "media-spoiler-content";
+  contentWrap.appendChild(element);
+
+  wrap.appendChild(overlay);
+  wrap.appendChild(contentWrap);
+
+  let revealed = false;
+  wrap.addEventListener("click", () => {
+    if (revealed) return;
+    revealed = true;
+    wrap.classList.add("media-spoiler-revealed");
+  });
+
+  return wrap;
+}
+
 function renderMediaBlock(block) {
   const src = safeMediaSrc(block.src);
   if (!src) return null;
@@ -3019,7 +3047,7 @@ function renderMediaBlock(block) {
     figcaption.className = "post-caption";
     figcaption.textContent = captionText;
     figure.appendChild(figcaption);
-    return figure;
+    return applyMediaSpoiler(figure, block);
   } else if (block.mediaKind === "video") {
     const video = document.createElement("video");
     video.className = "post-video";
@@ -3032,9 +3060,10 @@ function renderMediaBlock(block) {
     figcaption.className = "post-caption";
     figcaption.textContent = captionText;
     figure.appendChild(figcaption);
-    return figure;
+    return applyMediaSpoiler(figure, block);
   } else if (block.mediaKind === "audio") {
-    return renderAudioMediaBlock(block, src, captionText);
+    const audioEl = renderAudioMediaBlock(block, src, captionText);
+    return audioEl ? applyMediaSpoiler(audioEl, block) : null;
   } else if (block.mediaKind === "file") {
     const fileName = asText(block.name) || deriveFileNameFromSrc(src) || t("common.file", null, "file");
 
@@ -3060,7 +3089,7 @@ function renderMediaBlock(block) {
       fileBlock.appendChild(caption);
     }
 
-    return fileBlock;
+    return applyMediaSpoiler(fileBlock, block);
   }
 
   return null;

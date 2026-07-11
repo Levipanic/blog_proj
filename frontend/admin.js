@@ -806,6 +806,20 @@
       caption.dataset.field = "caption";
       caption.addEventListener("input", () => updateBlockTextField(index, "caption", caption.value));
       fields.appendChild(createBlockField(t("admin.fieldCaption", null, "Caption"), caption));
+
+      const spoilerWrap = document.createElement("label");
+      spoilerWrap.className = "admin-block-spoiler";
+      const spoilerCheck = document.createElement("input");
+      spoilerCheck.type = "checkbox";
+      spoilerCheck.checked = block.spoiler === true;
+      spoilerCheck.addEventListener("change", () => {
+        if (!draftBlocks[index]) return;
+        draftBlocks[index].spoiler = spoilerCheck.checked;
+        syncDraftOutputs();
+      });
+      spoilerWrap.appendChild(spoilerCheck);
+      spoilerWrap.appendChild(document.createTextNode(" " + t("admin.spoiler", null, "Spoiler")));
+      fields.appendChild(spoilerWrap);
       return fields;
     }
 

@@ -1314,10 +1314,13 @@ function validateAndNormalizePostBlock(rawBlock, index) {
       return { error: `${fieldPrefix}.src must be a local /uploads/... path.` };
     }
 
+    const spoiler = rawBlock.spoiler === true;
+
     const block = {
       type: "media",
       mediaKind,
-      src
+      src,
+      spoiler
     };
 
     const name = asText(rawBlock.name);
