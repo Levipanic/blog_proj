@@ -23,6 +23,7 @@
   const blockEditorList = document.getElementById("blockEditorList");
   const blockEditorEmpty = document.getElementById("blockEditorEmpty");
   const clearDraftButton = document.getElementById("clearDraftButton");
+  const cancelEditButton = document.getElementById("cancelEditButton");
   const postStatus = document.getElementById("postStatus");
   const postResult = document.getElementById("postResult");
   const postPreviewTitle = document.getElementById("postPreviewTitle");
@@ -53,11 +54,18 @@
   const LONG_BLOCK_COLLAPSE_LENGTH = 520;
   let lastUpload = null;
   let draftBlocks = [];
+  let editingPostId = null;
   let draggedBlockIndex = -1;
   let draftDirty = false;
   let adminCsrfToken = "";
   let previewRenderQueued = false;
   const collapsedBlocks = new WeakSet();
+
+  function parseQueryParam(name) {
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get(name);
+    return value && value.length > 0 ? value : null;
+  }
 
   function t(key, params, fallback) {
     if (window.i18n && typeof window.i18n.t === "function") {
@@ -1102,13 +1110,11 @@
       adminLogoutButton.disabled = true;
       try {
         await requestJson("/admin/logout", { method: "POST" });
-        adminCsrfToken = "";
-        showLoginView(t("admin.loggedOut", null, "Logged out."), false);
       } catch (error) {
-        setStatus(adminSessionStatus, translateErrorMessage(error, "admin.logoutFailed", "Logout failed."), true);
-      } finally {
-        adminLogoutButton.disabled = false;
+        // Logout failed on server, but clear local state anyway.
       }
+      adminCsrfToken = "";
+      showLoginView(t("admin.loggedOut", null, "Logged out."), false);
     });
   }
 
@@ -1216,7 +1222,9 @@
 
   postForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setStatus(postStatus, t("admin.creatingPost", null, "Creating post..."), false);
+    const isEditing = editingPostId !== null;
+
+    setStatus(postStatus, t(isEditing ? "admin.savingEdit" : "admin.creatingPost", null, isEditing ? "Saving..." : "Creating post..."), false);
     setResult(postResult, null);
 
     const title = asText(postTitleInput.value);
@@ -1267,8 +1275,10 @@
     }
 
     try {
-      const data = await requestJson("/posts", {
-        method: "POST",
+      const url = isEditing ? "/posts/" + encodeURIComponent(String(editingPostId)) : "/posts";
+      const method = isEditing ? "PUT" : "POST";
+      const data = await requestJson(url, {
+        method,
         headers: {
           "Content-Type": "application/json"
         },
@@ -1279,14 +1289,20 @@
       });
 
       setResult(postResult, data);
-      setStatus(postStatus, t("admin.postCreated", null, "Post created successfully."), false);
-      draftBlocks = [];
-      postTitleInput.value = "";
-      draftDirty = false;
-      clearStoredDraft();
-      renderBlockEditor();
-      syncBlocksJson();
-      schedulePostPreviewRender();
+      const successText = isEditing
+        ? t("admin.postUpdated", null, "Post updated.")
+        : t("admin.postCreated", null, "Post created successfully.");
+      setStatus(postStatus, successText, false);
+
+      if (!isEditing) {
+        draftBlocks = [];
+        postTitleInput.value = "";
+        draftDirty = false;
+        clearStoredDraft();
+        renderBlockEditor();
+        syncBlocksJson();
+        schedulePostPreviewRender();
+      }
     } catch (error) {
       if (error && error.status === 401) {
         await forceLogoutUi(t("admin.sessionExpired", null, "Session expired. Log in again to continue."));
@@ -1312,5 +1328,67 @@
   if (restoredDraft) {
     setStatus(postStatus, t("admin.draftRestored", null, "Draft restored."), false);
   }
+
+  const editId = parseQueryParam("edit");
+  const submitButton = postForm.querySelector("button[type='submit']");
+
+  function enterEditMode(postId) {
+    editingPostId = postId;
+    if (submitButton) {
+      submitButton.textContent = t("admin.savingEdit", null, "Save");
+    }
+    if (cancelEditButton) {
+      cancelEditButton.hidden = false;
+    }
+  }
+
+  function resetToCreateMode() {
+    editingPostId = null;
+    draftBlocks = [];
+    postTitleInput.value = "";
+    draftDirty = false;
+    clearStoredDraft();
+    renderBlockEditor();
+    syncBlocksJson();
+    schedulePostPreviewRender();
+    setResult(postResult, null);
+    setStatus(postStatus, "", false);
+    if (submitButton) {
+      submitButton.textContent = t("admin.createPost", null, "Create post");
+    }
+    if (cancelEditButton) {
+      cancelEditButton.hidden = true;
+    }
+    window.history.replaceState(null, "", "/admin");
+  }
+
+  if (editId) {
+    (async () => {
+      try {
+        const data = await fetchJson("/posts/" + encodeURIComponent(editId));
+        if (!data || !data.blocks) {
+          setStatus(postStatus, t("admin.postLoadFailed", null, "Post not found."), true);
+          return;
+        }
+        postTitleInput.value = data.title || "";
+        draftBlocks = Array.isArray(data.blocks) ? data.blocks.map(normalizeDraftBlock).filter(Boolean) : [];
+        draftDirty = false;
+        renderBlockEditor();
+        syncBlocksJson();
+        schedulePostPreviewRender();
+        enterEditMode(data.id);
+        setStatus(postStatus, t("admin.editTitle", null, "Edit post"), false);
+      } catch (error) {
+        setStatus(postStatus, translateErrorMessage(error, "admin.postLoadFailed", "Could not load post."), true);
+      }
+    })();
+  }
+
+  if (cancelEditButton) {
+    cancelEditButton.addEventListener("click", () => {
+      resetToCreateMode();
+    });
+  }
+
   refreshSessionUi();
 })();

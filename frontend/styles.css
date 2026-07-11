@@ -1037,6 +1037,7 @@ body.has-mini-audio-player .post-toc-floating-btn {
   margin: 0.2rem 0 0.6rem;
   display: flex;
   justify-content: flex-end;
+  gap: 0.4rem;
 }
 
 .continue-reading-box {
@@ -1087,6 +1088,30 @@ body.has-mini-audio-player .post-toc-floating-btn {
 .admin-delete-button:disabled {
   opacity: 0.66;
   cursor: wait;
+}
+
+.admin-edit-button {
+  min-height: 2rem;
+  padding: 0.34rem 0.66rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  color: var(--link);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: pointer;
+  touch-action: manipulation;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.admin-edit-button:hover {
+  background: var(--surface-hover);
+  text-decoration: none;
 }
 
 .tweet-text {

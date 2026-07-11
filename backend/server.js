@@ -2177,6 +2177,49 @@ app.post("/posts", requireAdminWrite, adminPostLimiter, async (req, res, next) =
   }
 });
 
+app.put("/posts/:id", requireAdminWrite, async (req, res, next) => {
+  try {
+    const postId = parsePositivePostId(req.params.id);
+    if (!postId) {
+      return res.status(400).json({ error: "Invalid post id." });
+    }
+
+    const existing = await get("SELECT id FROM posts WHERE id = ?", [postId]);
+    if (!existing) {
+      return res.status(404).json({ error: "Post not found." });
+    }
+
+    const payload = validateCreatePostPayload(req.body);
+    if (payload.errors.length > 0) {
+      return res.status(400).json({
+        error: "Invalid post payload.",
+        details: payload.errors
+      });
+    }
+
+    const { title, blocks } = payload.value;
+    await run(
+      "UPDATE posts SET title = ?, blocks_json = ? WHERE id = ?",
+      [title, JSON.stringify(blocks), postId]
+    );
+
+    const updated = await get(
+      "SELECT id, title, blocks_json, likes_count, created_at FROM posts WHERE id = ?",
+      [postId]
+    );
+
+    res.json({
+      id: updated.id,
+      title: updated.title,
+      likes: asLikeCount(updated.likes_count),
+      created_at: updated.created_at,
+      blocks: parseBlocksJson(updated.blocks_json)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.delete("/posts/:id", requireAdminWrite, async (req, res, next) => {
   try {
     const postId = parsePositivePostId(req.params.id);

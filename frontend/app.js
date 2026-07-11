@@ -2237,6 +2237,14 @@ function createAdminDeleteButton({ label, ariaLabel, title, confirmText, onDelet
   return button;
 }
 
+function createPostEditButton(postId) {
+  const button = document.createElement("a");
+  button.className = "admin-edit-button";
+  button.href = "/admin?edit=" + encodeURIComponent(String(postId));
+  button.textContent = t("admin.editPost", null, "Edit");
+  return button;
+}
+
 function createPostDeleteButton(postId, onDeleted, onError) {
   return createAdminDeleteButton({
     label: t("admin.deletePost", null, "Delete post"),
@@ -2612,15 +2620,17 @@ async function initFeedPage() {
     if (adminAuthenticated) {
       const headerActions = document.createElement("div");
       headerActions.className = "tweet-head-actions";
-      const deletePostButton = createPostDeleteButton(
-        post.id,
-        async () => {
-          feedStatusEl.textContent = t("admin.postDeleted", null, "Post deleted.");
-          await initFeedPage();
-        },
-        showDeleteError
+      headerActions.appendChild(createPostEditButton(post.id));
+      headerActions.appendChild(
+        createPostDeleteButton(
+          post.id,
+          async () => {
+            feedStatusEl.textContent = t("admin.postDeleted", null, "Post deleted.");
+            await initFeedPage();
+          },
+          showDeleteError
+        )
       );
-      headerActions.appendChild(deletePostButton);
       header.appendChild(headerActions);
     }
 
@@ -2917,6 +2927,7 @@ function renderPost(postViewEl, post, options) {
   if (adminAuthenticated) {
     const actions = document.createElement("div");
     actions.className = "admin-inline-actions";
+    actions.appendChild(createPostEditButton(post.id));
     actions.appendChild(
       createPostDeleteButton(
         post.id,
