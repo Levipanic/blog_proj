@@ -159,6 +159,9 @@ app.use(
   })
 );
 app.use("/uploads", express.static(uploadsDir));
+app.get("/admin.html", (req, res) => {
+  res.redirect(302, "/admin");
+});
 app.use(express.static(path.join(__dirname, "..", "frontend")));
 app.use(async (req, res, next) => {
   try {
@@ -1784,7 +1787,7 @@ app.post("/upload", requireAdminSession, (req, res, next) => {
 });
 
 app.get("/{*path}", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "frontend", "index.html"));
+  res.status(404).sendFile(path.join(__dirname, "..", "frontend", "404.html"));
 });
 
 app.use((err, req, res, next) => {

@@ -41,9 +41,14 @@
   }
 
   const ALLOWED_MEDIA_KINDS = new Set(["image", "gif", "video", "audio", "file"]);
+  const DRAFT_STORAGE_KEY = "stereodamage_admin_post_draft_v1";
+  const LONG_BLOCK_COLLAPSE_LENGTH = 520;
   let lastUpload = null;
   let draftBlocks = [];
+  let draggedBlockIndex = -1;
+  let draftDirty = false;
   let previewRenderQueued = false;
+  const collapsedBlocks = new WeakSet();
 
   function t(key, params, fallback) {
     if (window.i18n && typeof window.i18n.t === "function") {
@@ -87,6 +92,67 @@
   function setResult(preElement, data) {
     if (!preElement) return;
     preElement.textContent = data ? JSON.stringify(data, null, 2) : "";
+  }
+
+  function readStoredDraft() {
+    try {
+      const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      return parsed;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeStoredDraft() {
+    try {
+      const title = postTitleInput ? postTitleInput.value : "";
+      const hasContent = asText(title) || draftBlocks.length > 0;
+      if (!hasContent) {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        draftDirty = false;
+        return;
+      }
+
+      localStorage.setItem(
+        DRAFT_STORAGE_KEY,
+        JSON.stringify({
+          title,
+          blocks: draftBlocks,
+          updated_at: new Date().toISOString()
+        })
+      );
+      draftDirty = true;
+    } catch (error) {
+      draftDirty = Boolean(asText(postTitleInput && postTitleInput.value) || draftBlocks.length > 0);
+    }
+  }
+
+  function clearStoredDraft() {
+    try {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch (error) {
+      return;
+    }
+  }
+
+  function loadStoredDraft() {
+    const storedDraft = readStoredDraft();
+    if (!storedDraft) return false;
+
+    const storedBlocks = Array.isArray(storedDraft.blocks)
+      ? storedDraft.blocks.map((block) => createDefaultBlock(asText(block && block.type), block)).filter(Boolean)
+      : [];
+    const storedTitle = typeof storedDraft.title === "string" ? storedDraft.title : "";
+
+    if (!storedTitle && storedBlocks.length === 0) return false;
+
+    postTitleInput.value = storedTitle;
+    draftBlocks = storedBlocks;
+    draftDirty = true;
+    return true;
   }
 
   function setHeaderAdminUi(isAuthenticated) {
@@ -251,6 +317,7 @@
 
   function syncDraftOutputs() {
     syncBlocksJson();
+    writeStoredDraft();
     schedulePostPreviewRender();
   }
 
@@ -334,6 +401,34 @@
     window.setTimeout(() => {
       focusBlockField(target, "text");
     }, 0);
+  }
+
+  function reorderBlock(fromIndex, toIndex) {
+    if (
+      fromIndex < 0 ||
+      fromIndex >= draftBlocks.length ||
+      toIndex < 0 ||
+      toIndex >= draftBlocks.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+
+    const moved = draftBlocks.splice(fromIndex, 1)[0];
+    draftBlocks.splice(toIndex, 0, moved);
+    renderBlockEditor();
+    syncDraftOutputs();
+  }
+
+  function isLongEditableBlock(block) {
+    if (!block || typeof block !== "object") return false;
+    if (block.type === "paragraph" || block.type === "quote") {
+      return String(block.text || "").length >= LONG_BLOCK_COLLAPSE_LENGTH;
+    }
+    if (block.type === "media") {
+      return [block.src, block.name, block.alt, block.caption].join(" ").length >= LONG_BLOCK_COLLAPSE_LENGTH;
+    }
+    return false;
   }
 
   function updateBlockTextField(index, fieldName, value) {
@@ -465,11 +560,49 @@
       card.className = "admin-block-card";
       card.dataset.blockIndex = String(index);
 
+      card.addEventListener("dragover", (event) => {
+        if (draggedBlockIndex < 0 || draggedBlockIndex === index) return;
+        event.preventDefault();
+        card.classList.add("admin-block-card-drop-target");
+      });
+      card.addEventListener("dragleave", () => {
+        card.classList.remove("admin-block-card-drop-target");
+      });
+      card.addEventListener("drop", (event) => {
+        event.preventDefault();
+        card.classList.remove("admin-block-card-drop-target");
+        reorderBlock(draggedBlockIndex, index);
+        draggedBlockIndex = -1;
+      });
+
       const head = document.createElement("div");
       head.className = "admin-block-head";
 
       const titleWrap = document.createElement("div");
       titleWrap.className = "admin-block-title-wrap";
+
+      const dragHandle = document.createElement("button");
+      dragHandle.type = "button";
+      dragHandle.className = "admin-block-drag-handle";
+      dragHandle.textContent = "↕";
+      dragHandle.draggable = true;
+      dragHandle.title = t("admin.dragBlock", null, "Drag block");
+      dragHandle.setAttribute("aria-label", t("admin.dragBlock", null, "Drag block"));
+      dragHandle.addEventListener("dragstart", (event) => {
+        draggedBlockIndex = index;
+        card.classList.add("admin-block-card-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", String(index));
+        }
+      });
+      dragHandle.addEventListener("dragend", () => {
+        draggedBlockIndex = -1;
+        Array.from(blockEditorList.querySelectorAll(".admin-block-card")).forEach((item) => {
+          item.classList.remove("admin-block-card-dragging", "admin-block-card-drop-target");
+        });
+      });
+      titleWrap.appendChild(dragHandle);
 
       const indexLabel = document.createElement("p");
       indexLabel.className = "admin-block-index";
@@ -495,10 +628,27 @@
           t("admin.moveDown", null, "Move Down"),
           index === draftBlocks.length - 1,
           () => {
-          moveBlock(index, 1);
+            moveBlock(index, 1);
           }
         )
       );
+      if (isLongEditableBlock(block)) {
+        const collapsed = collapsedBlocks.has(block);
+        controls.appendChild(
+          createBlockControlButton(
+            collapsed ? t("admin.expand", null, "Expand") : t("admin.collapse", null, "Collapse"),
+            false,
+            () => {
+              if (collapsedBlocks.has(block)) {
+                collapsedBlocks.delete(block);
+              } else {
+                collapsedBlocks.add(block);
+              }
+              renderBlockEditor();
+            }
+          )
+        );
+      }
       controls.appendChild(
         createBlockControlButton(t("admin.delete", null, "Delete"), false, () => {
           deleteBlock(index);
@@ -507,7 +657,12 @@
       head.appendChild(controls);
 
       card.appendChild(head);
-      card.appendChild(renderBlockFields(block, index));
+      const fields = renderBlockFields(block, index);
+      if (collapsedBlocks.has(block)) {
+        fields.hidden = true;
+      }
+      card.classList.toggle("admin-block-card-collapsed", collapsedBlocks.has(block));
+      card.appendChild(fields);
       blockEditorList.appendChild(card);
     });
 
@@ -639,6 +794,20 @@
     }
   }
 
+  async function ensureActiveAdminSession() {
+    try {
+      const data = await requestJson("/admin/session");
+      if (data && data.authenticated) {
+        return true;
+      }
+    } catch (error) {
+      // Fall through to the shared forced-login UI.
+    }
+
+    await forceLogoutUi(t("admin.sessionExpired", null, "Session expired. Log in again to continue."));
+    return false;
+  }
+
   adminLoginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const secret = asText(adminSecretInput.value);
@@ -690,6 +859,10 @@
     const file = uploadFileInput.files && uploadFileInput.files[0];
     if (!file) {
       setStatus(uploadStatus, t("admin.chooseFile", null, "Choose a file first."), true);
+      return;
+    }
+
+    if (!(await ensureActiveAdminSession())) {
       return;
     }
 
@@ -756,10 +929,13 @@
   clearDraftButton.addEventListener("click", () => {
     draftBlocks = [];
     postTitleInput.value = "";
+    draftDirty = false;
+    clearStoredDraft();
     setStatus(postStatus, t("admin.draftCleared", null, "Draft cleared."), false);
     setResult(postResult, null);
     renderBlockEditor();
-    syncDraftOutputs();
+    syncBlocksJson();
+    schedulePostPreviewRender();
   });
 
   postForm.addEventListener("submit", async (event) => {
@@ -789,6 +965,10 @@
         ),
         true
       );
+      return;
+    }
+
+    if (!(await ensureActiveAdminSession())) {
       return;
     }
 
@@ -824,6 +1004,13 @@
 
       setResult(postResult, data);
       setStatus(postStatus, t("admin.postCreated", null, "Post created successfully."), false);
+      draftBlocks = [];
+      postTitleInput.value = "";
+      draftDirty = false;
+      clearStoredDraft();
+      renderBlockEditor();
+      syncBlocksJson();
+      schedulePostPreviewRender();
     } catch (error) {
       if (error && error.status === 401) {
         await forceLogoutUi(t("admin.sessionExpired", null, "Session expired. Log in again to continue."));
@@ -833,10 +1020,21 @@
     }
   });
 
-  postTitleInput.addEventListener("input", schedulePostPreviewRender);
-  postTitleInput.addEventListener("change", schedulePostPreviewRender);
+  postTitleInput.addEventListener("input", syncDraftOutputs);
+  postTitleInput.addEventListener("change", syncDraftOutputs);
 
+  window.addEventListener("beforeunload", (event) => {
+    if (!draftDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
+  const restoredDraft = loadStoredDraft();
   renderBlockEditor();
-  syncDraftOutputs();
+  syncBlocksJson();
+  schedulePostPreviewRender();
+  if (restoredDraft) {
+    setStatus(postStatus, t("admin.draftRestored", null, "Draft restored."), false);
+  }
   refreshSessionUi();
 })();
