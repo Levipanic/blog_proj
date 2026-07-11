@@ -113,9 +113,34 @@ async function initDb() {
     await run("ALTER TABLE comments ADD COLUMN likes_count INTEGER NOT NULL DEFAULT 0");
   }
 
+  const hasCommentStatusColumn = commentColumnsAfterCreate.some((column) => column.name === "status");
+  if (!hasCommentStatusColumn) {
+    await run("ALTER TABLE comments ADD COLUMN status TEXT NOT NULL DEFAULT 'visible'");
+  }
+
+  const hasModerationReasonColumn = commentColumnsAfterCreate.some((column) => column.name === "moderation_reason");
+  if (!hasModerationReasonColumn) {
+    await run("ALTER TABLE comments ADD COLUMN moderation_reason TEXT");
+  }
+
+  const hasTextHashColumn = commentColumnsAfterCreate.some((column) => column.name === "text_hash");
+  if (!hasTextHashColumn) {
+    await run("ALTER TABLE comments ADD COLUMN text_hash TEXT");
+  }
+
+  const hasTextFingerprintColumn = commentColumnsAfterCreate.some((column) => column.name === "text_fingerprint");
+  if (!hasTextFingerprintColumn) {
+    await run("ALTER TABLE comments ADD COLUMN text_fingerprint TEXT");
+  }
+
   await run(`
     CREATE INDEX IF NOT EXISTS idx_comments_post_parent
     ON comments(post_id, parent_id, id)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comments_status_created
+    ON comments(status, created_at)
   `);
 
   await run(`
@@ -146,6 +171,66 @@ async function initDb() {
   await run(`
     CREATE INDEX IF NOT EXISTS idx_comment_like_events_comment_ip_created
     ON comment_like_events(comment_id, ip_hash, created_at)
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS comment_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip_hash TEXT NOT NULL,
+      post_id INTEGER,
+      status TEXT NOT NULL,
+      reason TEXT,
+      content TEXT,
+      text_hash TEXT,
+      fingerprint TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comment_attempts_ip_time
+    ON comment_attempts(ip_hash, created_at)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comment_attempts_post_time
+    ON comment_attempts(post_id, created_at)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comment_attempts_ip_post_hash_time
+    ON comment_attempts(ip_hash, post_id, text_hash, created_at)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comment_attempts_ip_status_time
+    ON comment_attempts(ip_hash, status, created_at)
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS comment_mutes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip_hash TEXT NOT NULL UNIQUE,
+      reason TEXT,
+      muted_until TEXT NOT NULL,
+      mute_count INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_comment_mutes_until
+    ON comment_mutes(muted_until)
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS comment_challenge_uses (
+      token_hash TEXT PRIMARY KEY,
+      post_id INTEGER NOT NULL,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      first_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
   `);
 
   await run(`

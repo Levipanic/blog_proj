@@ -65,7 +65,6 @@ const commentAttemptRateLimitMax = getPositiveInt(process.env.COMMENT_ATTEMPT_RA
 const commentCooldownSeconds = getPositiveInt(process.env.COMMENT_COOLDOWN_SECONDS, 12);
 const commentCooldownMs = commentCooldownSeconds * 1000;
 const commentBurstWindowSeconds = getPositiveInt(process.env.COMMENT_BURST_WINDOW_SECONDS, 60);
-const commentBurstWindowMs = commentBurstWindowSeconds * 1000;
 const commentBurstMax = getPositiveInt(process.env.COMMENT_BURST_MAX, 6);
 const commentDuplicateWindowSeconds = getPositiveInt(process.env.COMMENT_DUPLICATE_WINDOW_SECONDS, 180);
 const commentDuplicateWindowMs = commentDuplicateWindowSeconds * 1000;
@@ -102,21 +101,25 @@ const lowDiversityCheckMinLength = 120;
 const lowDiversityThreshold = 0.08;
 const visualNoiseCheckMinLength = 60;
 const visualNoiseSymbolThreshold = 0.85;
-const commentRateStateByIp = new Map();
-const commentDuplicateStateByIp = new Map();
-const commentRateStateByPost = new Map();
-let commentGlobalPostedAt = [];
+const commentSoftLimitError = "Too many messages in a row. Please try a bit later.";
+const commentChallengeTtlSeconds = getPositiveInt(process.env.COMMENT_CHALLENGE_TTL_SECONDS, 30 * 60);
+const commentChallengeTtlMs = commentChallengeTtlSeconds * 1000;
+const commentChallengeClockSkewSeconds = getPositiveInt(process.env.COMMENT_CHALLENGE_CLOCK_SKEW_SECONDS, 60);
+const commentChallengeSalt = process.env.COMMENT_CHALLENGE_SALT || adminSecret;
+const commentMuteSeconds = getPositiveInt(process.env.COMMENT_MUTE_SECONDS, 30 * 60);
+const commentHoneypotMuteThreshold = getPositiveInt(process.env.COMMENT_HONEYPOT_MUTE_THRESHOLD, 2);
+const commentRejectedMuteThreshold = getPositiveInt(process.env.COMMENT_REJECTED_MUTE_THRESHOLD, 12);
+const commentAttemptContentMaxLength = getPositiveInt(process.env.COMMENT_ATTEMPT_CONTENT_MAX_LENGTH, 500);
+const commentAdminListLimit = getPositiveInt(process.env.COMMENT_ADMIN_LIST_LIMIT, 40);
 const commentPostRateLimitWindowSeconds = getPositiveInt(
   process.env.COMMENT_POST_RATE_LIMIT_WINDOW_SECONDS,
   120
 );
-const commentPostRateLimitWindowMs = commentPostRateLimitWindowSeconds * 1000;
 const commentPostRateLimitMax = getPositiveInt(process.env.COMMENT_POST_RATE_LIMIT_MAX, 30);
 const commentGlobalRateLimitWindowSeconds = getPositiveInt(
   process.env.COMMENT_GLOBAL_RATE_LIMIT_WINDOW_SECONDS,
   60
 );
-const commentGlobalRateLimitWindowMs = commentGlobalRateLimitWindowSeconds * 1000;
 const commentGlobalRateLimitMax = getPositiveInt(process.env.COMMENT_GLOBAL_RATE_LIMIT_MAX, 120);
 const maxPostBlocks = getPositiveInt(process.env.POST_MAX_BLOCKS, 60);
 const maxPostTextLength = getPositiveInt(process.env.POST_MAX_TEXT_LENGTH, 4000);
@@ -207,7 +210,7 @@ const commentAttemptLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
-  message: { error: "Too many comment attempts from this IP. Please slow down and try again." }
+  message: { error: commentSoftLimitError }
 });
 
 const adminPostLimiter = rateLimit({
@@ -289,6 +292,78 @@ function getClientIp(req) {
 
 function hashIpAddress(ipAddress) {
   return crypto.createHash("sha256").update(`${likeIpHashSalt}:${ipAddress}`).digest("hex");
+}
+
+function hashCommentToken(value) {
+  return crypto.createHash("sha256").update(`${commentChallengeSalt}:${String(value || "")}`).digest("hex");
+}
+
+function createCommentChallenge(postId) {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomBytes(12).toString("hex");
+  const honeypotField = `hp_${crypto.randomBytes(6).toString("hex")}`;
+  const payload = `${postId}.${issuedAt}.${nonce}.${honeypotField}`;
+  const signature = crypto.createHmac("sha256", commentChallengeSalt).update(payload).digest("hex");
+
+  return {
+    token: `${payload}.${signature}`,
+    honeypot_field: honeypotField,
+    expires_in_seconds: commentChallengeTtlSeconds
+  };
+}
+
+function parseCommentChallengeToken(token) {
+  const value = String(token || "").trim();
+  const parts = value.split(".");
+  if (parts.length !== 5) {
+    return { valid: false, reason: "invalid_challenge_format" };
+  }
+
+  const [postIdText, issuedAtText, nonce, honeypotField, signature] = parts;
+  const postId = Number(postIdText);
+  const issuedAt = Number(issuedAtText);
+  if (!Number.isInteger(postId) || postId <= 0) {
+    return { valid: false, reason: "invalid_challenge_post" };
+  }
+  if (!Number.isInteger(issuedAt) || issuedAt <= 0) {
+    return { valid: false, reason: "invalid_challenge_time" };
+  }
+  if (!/^[a-f0-9]{24}$/i.test(nonce)) {
+    return { valid: false, reason: "invalid_challenge_nonce" };
+  }
+  if (!/^hp_[a-f0-9]{12}$/i.test(honeypotField)) {
+    return { valid: false, reason: "invalid_challenge_honeypot" };
+  }
+  if (!/^[a-f0-9]{64}$/i.test(signature)) {
+    return { valid: false, reason: "invalid_challenge_signature" };
+  }
+
+  const payload = `${postIdText}.${issuedAtText}.${nonce}.${honeypotField}`;
+  const expectedSignature = crypto
+    .createHmac("sha256", commentChallengeSalt)
+    .update(payload)
+    .digest("hex");
+  if (!secureSecretsMatch(signature, expectedSignature)) {
+    return { valid: false, reason: "bad_challenge_signature" };
+  }
+
+  const issuedAtMillis = issuedAt * 1000;
+  const now = Date.now();
+  if (issuedAtMillis > now + commentChallengeClockSkewSeconds * 1000) {
+    return { valid: false, reason: "future_challenge" };
+  }
+  if (now - issuedAtMillis > commentChallengeTtlMs) {
+    return { valid: false, reason: "expired_challenge" };
+  }
+
+  return {
+    valid: true,
+    postId,
+    issuedAt,
+    honeypotField,
+    tokenHash: hashCommentToken(value),
+    ageSeconds: Math.max(0, Math.floor((now - issuedAtMillis) / 1000))
+  };
 }
 
 function toGraphemes(value) {
@@ -544,237 +619,344 @@ function validateCommentContent(rawContent) {
   };
 }
 
-function readCommentRateState(ipAddress, now) {
-  const state = commentRateStateByIp.get(ipAddress);
-  if (!state) {
-    return { lastPostedAt: 0, postedAt: [] };
-  }
-
-  if (!Number.isFinite(state.lastPostedAt)) {
-    state.lastPostedAt = 0;
-  }
-
-  const postedAt = Array.isArray(state.postedAt) ? state.postedAt : [];
-  const recentPostedAt = postedAt.filter(
-    (timestamp) => Number.isFinite(timestamp) && now - timestamp < commentBurstWindowMs
-  );
-
-  if (!Array.isArray(state.postedAt) || recentPostedAt.length !== postedAt.length) {
-    state.postedAt = recentPostedAt;
-    commentRateStateByIp.set(ipAddress, state);
-  }
-
-  return state;
-}
-
-function cleanupCommentRateState(now = Date.now()) {
-  if (commentRateStateByIp.size <= 2048) {
-    return;
-  }
-
-  const staleThreshold = now - commentBurstWindowMs * 2;
-  for (const [ip, entry] of commentRateStateByIp.entries()) {
-    const lastPostedAt = Number(entry && entry.lastPostedAt);
-    const postedAt = Array.isArray(entry && entry.postedAt) ? entry.postedAt : [];
-    const hasRecentActivity =
-      lastPostedAt > staleThreshold || postedAt.some((timestamp) => timestamp > staleThreshold);
-
-    if (!hasRecentActivity) {
-      commentRateStateByIp.delete(ip);
-    }
-  }
-}
-
-function consumeCommentRateSlot(ipAddress, now = Date.now()) {
-  const state = readCommentRateState(ipAddress, now);
-
-  if (state.lastPostedAt > 0) {
-    const elapsedMs = now - state.lastPostedAt;
-    if (elapsedMs < commentCooldownMs) {
-      return {
-        limited: true,
-        retryAfterSeconds: Math.max(1, Math.ceil((commentCooldownMs - elapsedMs) / 1000)),
-        error: "You are commenting too quickly. Please wait a moment."
-      };
-    }
-  }
-
-  if (state.postedAt.length >= commentBurstMax) {
-    const oldestPostedAt = state.postedAt[0] || now;
-    const retryAfterMs = Math.max(1000, commentBurstWindowMs - (now - oldestPostedAt));
-    return {
-      limited: true,
-      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
-      error: "You are commenting too quickly. Please wait a moment."
-    };
-  }
-
-  state.lastPostedAt = now;
-  state.postedAt.push(now);
-  commentRateStateByIp.set(ipAddress, state);
-  cleanupCommentRateState(now);
-
-  return { limited: false, retryAfterSeconds: 0, error: "" };
-}
-
-function normalizeCommentForDuplicateSignature(content) {
+function normalizeCommentText(content) {
   return asText(content)
     .toLowerCase()
     .replace(/\s+/gu, " ");
 }
 
-function pruneDuplicateCommentMapEntries(entryMap, now = Date.now()) {
-  const threshold = now - commentDuplicateWindowMs;
-  for (const [signature, timestamp] of entryMap.entries()) {
-    if (!Number.isFinite(timestamp) || timestamp <= threshold) {
-      entryMap.delete(signature);
-    }
-  }
+function getCommentTextHash(content) {
+  return crypto.createHash("sha256").update(normalizeCommentText(content)).digest("hex");
 }
 
-function getDuplicateCommentSignature(postId, content) {
-  const normalized = normalizeCommentForDuplicateSignature(content);
-  return crypto.createHash("sha256").update(`${postId}:${normalized}`).digest("hex");
+function getCommentTextFingerprint(content) {
+  const normalized = normalizeCommentText(content)
+    .replace(/(?:https?:\/\/|www\.)\S+/giu, " <url> ")
+    .replace(/\d+/gu, "0")
+    .replace(/[^\p{L}\p{N}<>\s]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .slice(0, 300);
+  return crypto.createHash("sha256").update(normalized).digest("hex");
 }
 
-function readDuplicateCommentState(ipAddress, now = Date.now()) {
-  const state = commentDuplicateStateByIp.get(ipAddress);
-  if (!(state instanceof Map)) {
-    return new Map();
-  }
-
-  pruneDuplicateCommentMapEntries(state, now);
-  if (state.size === 0) {
-    commentDuplicateStateByIp.delete(ipAddress);
-  }
-  return state;
+function isSpamValidationError(message) {
+  return [
+    "Comment looks like automated text spam. Please rewrite it in normal words.",
+    "Comment is too repetitive.",
+    "Please reduce repeated symbols or emoji."
+  ].includes(String(message || ""));
 }
 
-function cleanupDuplicateCommentState(now = Date.now()) {
-  if (commentDuplicateStateByIp.size <= 2048) {
-    return;
-  }
-
-  for (const [ipAddress, state] of commentDuplicateStateByIp.entries()) {
-    if (!(state instanceof Map)) {
-      commentDuplicateStateByIp.delete(ipAddress);
-      continue;
-    }
-    pruneDuplicateCommentMapEntries(state, now);
-    if (state.size === 0) {
-      commentDuplicateStateByIp.delete(ipAddress);
-    }
-  }
+function countCommentUrls(content) {
+  const matches = String(content || "").match(/(?:https?:\/\/|www\.)/giu);
+  return matches ? matches.length : 0;
 }
 
-function checkDuplicateComment(ipAddress, postId, content, now = Date.now()) {
-  const state = readDuplicateCommentState(ipAddress, now);
-  const signature = getDuplicateCommentSignature(postId, content);
-  const previousPostedAt = Number(state.get(signature) || 0);
-  if (!Number.isFinite(previousPostedAt) || previousPostedAt <= 0) {
-    return { duplicate: false, retryAfterSeconds: 0 };
-  }
-
-  const elapsedMs = now - previousPostedAt;
-  if (elapsedMs >= commentDuplicateWindowMs) {
-    return { duplicate: false, retryAfterSeconds: 0 };
-  }
-
-  const retryAfterSeconds = Math.max(1, Math.ceil((commentDuplicateWindowMs - elapsedMs) / 1000));
-  return { duplicate: true, retryAfterSeconds };
+function sqlSecondsWindow(seconds) {
+  return `-${Math.max(1, Math.floor(Number(seconds) || 1))} seconds`;
 }
 
-function rememberDuplicateComment(ipAddress, postId, content, now = Date.now()) {
-  const existing = readDuplicateCommentState(ipAddress, now);
-  const state = existing instanceof Map ? existing : new Map();
-  const signature = getDuplicateCommentSignature(postId, content);
-  state.set(signature, now);
-  commentDuplicateStateByIp.set(ipAddress, state);
-  cleanupDuplicateCommentState(now);
+function formatSqlDatetimeFromMillis(millis) {
+  const date = new Date(millis);
+  if (!Number.isFinite(millis) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
-function pruneTimestampArray(items, windowMs, now = Date.now()) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return [];
+function asCount(row) {
+  const count = Number(row && row.count);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function getRetryAfterSecondsFromSqlDate(sqlDateText) {
+  const millis = parseUtcMillis(sqlDateText);
+  if (!millis) return 1;
+  return Math.max(1, Math.ceil((millis - Date.now()) / 1000));
+}
+
+async function cleanupExpiredCommentMutes() {
+  await run("DELETE FROM comment_mutes WHERE datetime(muted_until) <= datetime('now')");
+}
+
+async function getActiveCommentMute(ipHash) {
+  await cleanupExpiredCommentMutes();
+  return get(
+    "SELECT id, reason, muted_until, mute_count FROM comment_mutes WHERE ip_hash = ? AND datetime(muted_until) > datetime('now')",
+    [ipHash]
+  );
+}
+
+async function muteCommentIp(ipHash, reason, seconds = commentMuteSeconds) {
+  const mutedUntil = formatSqlDatetimeFromMillis(Date.now() + Math.max(1, seconds) * 1000);
+  if (!mutedUntil) return null;
+
+  await run(
+    `
+      INSERT INTO comment_mutes (ip_hash, reason, muted_until, mute_count, created_at)
+      VALUES (?, ?, ?, 1, datetime('now'))
+      ON CONFLICT(ip_hash) DO UPDATE SET
+        reason = excluded.reason,
+        muted_until = excluded.muted_until,
+        mute_count = comment_mutes.mute_count + 1
+    `,
+    [ipHash, reason, mutedUntil]
+  );
+  return mutedUntil;
+}
+
+async function recordCommentAttempt({ ipHash, postId, status, reason, content, textHash, fingerprint }) {
+  await run(
+    `
+      INSERT INTO comment_attempts (ip_hash, post_id, status, reason, content, text_hash, fingerprint, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `,
+    [
+      ipHash,
+      Number.isInteger(postId) && postId > 0 ? postId : null,
+      status || "rejected",
+      reason || null,
+      content ? String(content).slice(0, commentAttemptContentMaxLength) : null,
+      textHash || null,
+      fingerprint || null
+    ]
+  );
+}
+
+async function cleanupCommentChallenges() {
+  await run("DELETE FROM comment_challenge_uses WHERE datetime(last_used_at) < datetime('now', ?)", [
+    sqlSecondsWindow(commentChallengeTtlSeconds * 2)
+  ]);
+}
+
+async function consumeCommentChallenge(challenge) {
+  await cleanupCommentChallenges();
+  const existing = await get(
+    "SELECT used_count FROM comment_challenge_uses WHERE token_hash = ? AND post_id = ?",
+    [challenge.tokenHash, challenge.postId]
+  );
+
+  if (existing && Number(existing.used_count) > 0) {
+    return { ok: false, reason: "challenge_replay" };
   }
 
-  const threshold = now - windowMs;
-  return items.filter((timestamp) => Number.isFinite(timestamp) && timestamp > threshold);
-}
-
-function readPostCommentRate(postId, now = Date.now()) {
-  const key = Number(postId);
-  const existing = commentRateStateByPost.get(key);
-  const recent = pruneTimestampArray(existing, commentPostRateLimitWindowMs, now);
-
-  if (recent.length > 0) {
-    commentRateStateByPost.set(key, recent);
+  if (existing) {
+    await run(
+      "UPDATE comment_challenge_uses SET used_count = 1, last_used_at = datetime('now') WHERE token_hash = ?",
+      [challenge.tokenHash]
+    );
   } else {
-    commentRateStateByPost.delete(key);
+    await run(
+      `
+        INSERT INTO comment_challenge_uses (token_hash, post_id, used_count, first_used_at, last_used_at)
+        VALUES (?, ?, 1, datetime('now'), datetime('now'))
+      `,
+      [challenge.tokenHash, challenge.postId]
+    );
   }
 
-  return recent;
+  return { ok: true, reason: "" };
 }
 
-function cleanupPostCommentRateState(now = Date.now()) {
-  if (commentRateStateByPost.size <= 4096) {
-    return;
-  }
+async function getCommentAttemptStats(ipHash, postId, textHash, fingerprint) {
+  const [lastAttempt, ipRecent, ipRejected, postRecent, globalRecent, duplicate, fingerprintRecent] =
+    await Promise.all([
+      get(
+        "SELECT created_at FROM comment_attempts WHERE ip_hash = ? ORDER BY datetime(created_at) DESC, id DESC LIMIT 1",
+        [ipHash]
+      ),
+      get(
+        "SELECT COUNT(*) AS count FROM comment_attempts WHERE ip_hash = ? AND datetime(created_at) >= datetime('now', ?)",
+        [ipHash, sqlSecondsWindow(commentBurstWindowSeconds)]
+      ),
+      get(
+        "SELECT COUNT(*) AS count FROM comment_attempts WHERE ip_hash = ? AND status IN ('rejected', 'muted') AND datetime(created_at) >= datetime('now', ?)",
+        [ipHash, sqlSecondsWindow(commentBurstWindowSeconds)]
+      ),
+      get(
+        "SELECT COUNT(*) AS count FROM comment_attempts WHERE post_id = ? AND status IN ('visible', 'pending') AND datetime(created_at) >= datetime('now', ?)",
+        [postId, sqlSecondsWindow(commentPostRateLimitWindowSeconds)]
+      ),
+      get(
+        "SELECT COUNT(*) AS count FROM comment_attempts WHERE status IN ('visible', 'pending') AND datetime(created_at) >= datetime('now', ?)",
+        [sqlSecondsWindow(commentGlobalRateLimitWindowSeconds)]
+      ),
+      get(
+        `
+          SELECT created_at
+          FROM comment_attempts
+          WHERE ip_hash = ?
+            AND post_id = ?
+            AND text_hash = ?
+            AND status IN ('visible', 'pending')
+            AND datetime(created_at) >= datetime('now', ?)
+          ORDER BY datetime(created_at) DESC, id DESC
+          LIMIT 1
+        `,
+        [ipHash, postId, textHash, sqlSecondsWindow(commentDuplicateWindowSeconds)]
+      ),
+      get(
+        `
+          SELECT COUNT(*) AS count
+          FROM comment_attempts
+          WHERE ip_hash = ?
+            AND post_id = ?
+            AND fingerprint = ?
+            AND text_hash <> ?
+            AND status IN ('visible', 'pending')
+            AND datetime(created_at) >= datetime('now', ?)
+        `,
+        [ipHash, postId, fingerprint, textHash, sqlSecondsWindow(commentDuplicateWindowSeconds)]
+      )
+    ]);
 
-  for (const [postId, timestamps] of commentRateStateByPost.entries()) {
-    const recent = pruneTimestampArray(timestamps, commentPostRateLimitWindowMs, now);
-    if (recent.length > 0) {
-      commentRateStateByPost.set(postId, recent);
-    } else {
-      commentRateStateByPost.delete(postId);
+  return {
+    lastAttemptAt: lastAttempt && lastAttempt.created_at ? lastAttempt.created_at : "",
+    ipRecentCount: asCount(ipRecent),
+    ipRejectedCount: asCount(ipRejected),
+    postRecentCount: asCount(postRecent),
+    globalRecentCount: asCount(globalRecent),
+    duplicateCreatedAt: duplicate && duplicate.created_at ? duplicate.created_at : "",
+    fingerprintRecentCount: asCount(fingerprintRecent)
+  };
+}
+
+function getPersistentCommentRateLimit(stats) {
+  const lastAttemptMillis = parseUtcMillis(stats.lastAttemptAt);
+  if (lastAttemptMillis > 0) {
+    const elapsedMs = Date.now() - lastAttemptMillis;
+    if (elapsedMs < commentCooldownMs) {
+      return {
+        limited: true,
+        retryAfterSeconds: Math.max(1, Math.ceil((commentCooldownMs - elapsedMs) / 1000)),
+        reason: "cooldown"
+      };
     }
   }
-}
 
-function checkPostCommentRateLimit(postId, now = Date.now()) {
-  const recent = readPostCommentRate(postId, now);
-  if (recent.length < commentPostRateLimitMax) {
-    return { limited: false, retryAfterSeconds: 0 };
+  if (stats.ipRecentCount >= commentBurstMax) {
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(1, commentBurstWindowSeconds),
+      reason: "ip_burst"
+    };
   }
 
-  const oldest = recent[0] || now;
-  const retryAfterMs = Math.max(1000, commentPostRateLimitWindowMs - (now - oldest));
+  if (stats.postRecentCount >= commentPostRateLimitMax) {
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(1, commentPostRateLimitWindowSeconds),
+      reason: "post_flood"
+    };
+  }
+
+  if (stats.globalRecentCount >= commentGlobalRateLimitMax) {
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(1, commentGlobalRateLimitWindowSeconds),
+      reason: "global_flood"
+    };
+  }
+
+  if (stats.duplicateCreatedAt) {
+    const retryAfterSeconds = getRetryAfterSecondsFromSqlDate(
+      formatSqlDatetimeFromMillis(parseUtcMillis(stats.duplicateCreatedAt) + commentDuplicateWindowMs)
+    );
+    return {
+      limited: true,
+      retryAfterSeconds,
+      reason: "duplicate"
+    };
+  }
+
+  return { limited: false, retryAfterSeconds: 0, reason: "" };
+}
+
+function requestUrlHostMatches(value, host) {
+  try {
+    const parsed = new URL(String(value || ""));
+    return parsed.host.toLowerCase() === String(host || "").toLowerCase();
+  } catch (error) {
+    return false;
+  }
+}
+
+function getCommentRequestSourceSignals(req) {
+  const host = asText(req.get("host"));
+  const origin = asText(req.get("origin"));
+  const referer = asText(req.get("referer"));
+  const signals = [];
+
+  if (!host) {
+    return signals;
+  }
+
+  if (origin && !requestUrlHostMatches(origin, host)) {
+    signals.push({ reason: "cross_origin", score: 3 });
+  }
+
+  if (referer && !requestUrlHostMatches(referer, host)) {
+    signals.push({ reason: "cross_referer", score: 2 });
+  }
+
+  if (!origin && !referer) {
+    signals.push({ reason: "missing_origin_referer", score: 1 });
+  }
+
+  return signals;
+}
+
+function scoreCommentForModeration(req, { name, content, stats }) {
+  let score = 0;
+  const reasons = [];
+
+  getCommentRequestSourceSignals(req).forEach((signal) => {
+    score += signal.score;
+    reasons.push(signal.reason);
+  });
+
+  const urlCount = countCommentUrls(content);
+  if (urlCount >= 2) {
+    score += 2;
+    reasons.push("multiple_links");
+  }
+
+  if (urlCount >= 1 && content.length < 80) {
+    score += 2;
+    reasons.push("short_link_comment");
+  }
+
+  if (/(?:https?:\/\/|www\.)/iu.test(name)) {
+    score += 2;
+    reasons.push("link_in_name");
+  }
+
+  if (stats.fingerprintRecentCount > 0) {
+    score += 3;
+    reasons.push("similar_recent_comment");
+  }
+
+  if (stats.ipRecentCount >= Math.max(2, commentBurstMax - 2)) {
+    score += 2;
+    reasons.push("near_ip_burst_limit");
+  }
+
+  if (stats.ipRejectedCount >= 3) {
+    score += 3;
+    reasons.push("recent_rejections");
+  }
+
   return {
-    limited: true,
-    retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000))
+    score,
+    reasons
   };
 }
 
-function recordPostCommentRate(postId, now = Date.now()) {
-  const recent = readPostCommentRate(postId, now);
-  recent.push(now);
-  commentRateStateByPost.set(Number(postId), recent);
-  cleanupPostCommentRateState(now);
-}
-
-function readGlobalCommentRate(now = Date.now()) {
-  commentGlobalPostedAt = pruneTimestampArray(commentGlobalPostedAt, commentGlobalRateLimitWindowMs, now);
-  return commentGlobalPostedAt;
-}
-
-function checkGlobalCommentRateLimit(now = Date.now()) {
-  const recent = readGlobalCommentRate(now);
-  if (recent.length < commentGlobalRateLimitMax) {
-    return { limited: false, retryAfterSeconds: 0 };
+function formatCommentModerationReason(score, reasons) {
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    return "";
   }
-
-  const oldest = recent[0] || now;
-  const retryAfterMs = Math.max(1000, commentGlobalRateLimitWindowMs - (now - oldest));
-  return {
-    limited: true,
-    retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000))
-  };
-}
-
-function recordGlobalCommentRate(now = Date.now()) {
-  const recent = readGlobalCommentRate(now);
-  recent.push(now);
-  commentGlobalPostedAt = recent;
+  return `score:${score}; ${reasons.join(",")}`;
 }
 
 function requireJsonRequest(req, res, next) {
@@ -1404,6 +1586,24 @@ app.get("/posts/:id", async (req, res, next) => {
   }
 });
 
+app.get("/comments/challenge/:post_id", async (req, res, next) => {
+  try {
+    const postId = parsePositivePostId(req.params.post_id);
+    if (!postId) {
+      return res.status(400).json({ error: "Invalid post id." });
+    }
+
+    const postExists = await get("SELECT id FROM posts WHERE id = ?", [postId]);
+    if (!postExists) {
+      return res.status(404).json({ error: "Post not found." });
+    }
+
+    res.json(createCommentChallenge(postId));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/comments/:post_id", async (req, res, next) => {
   try {
     const requestedOrder = String(req.query.order || "asc").toLowerCase();
@@ -1413,7 +1613,7 @@ app.get("/comments/:post_id", async (req, res, next) => {
     const limit = Math.min(20, parsedLimit);
 
     let sql =
-      "SELECT id, post_id, parent_id, name, content, likes_count, created_at FROM comments WHERE post_id = ? ORDER BY datetime(created_at) " +
+      "SELECT id, post_id, parent_id, name, content, likes_count, created_at FROM comments WHERE post_id = ? AND status = 'visible' ORDER BY datetime(created_at) " +
       order +
       ", id " +
       order;
@@ -1438,17 +1638,77 @@ app.post("/comments", requireJsonRequest, commentAttemptLimiter, async (req, res
     const postId = Number.isInteger(parsedPostId) && parsedPostId > 0 ? parsedPostId : null;
     const rawParentId = req.body.parent_id;
     const name = asText(req.body.name);
-    const honeypot = asText(req.body.website);
+    const clientIp = getClientIp(req);
+    const ipHash = hashIpAddress(clientIp);
+    const rawContent = asText(req.body.content);
+    const challengeToken = asText(req.body.challenge_token);
+    const staticHoneypot = asText(req.body.website);
 
-    if (honeypot) {
-      return res.status(400).json({ error: "Spam detected." });
+    const activeMute = await getActiveCommentMute(ipHash);
+    if (activeMute) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "muted",
+        reason: activeMute.reason || "active_mute",
+        content: rawContent
+      });
+      res.set("Retry-After", String(getRetryAfterSecondsFromSqlDate(activeMute.muted_until)));
+      return res.status(429).json({ error: commentSoftLimitError });
     }
 
     if (!postId) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: "invalid_post_id",
+        content: rawContent
+      });
       return res.status(400).json({ error: "Invalid post id." });
     }
 
+    const challenge = parseCommentChallengeToken(challengeToken);
+    if (!challenge.valid || challenge.postId !== postId) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: challenge.reason || "invalid_challenge",
+        content: rawContent
+      });
+      return res.status(429).json({ error: commentSoftLimitError });
+    }
+
+    const dynamicHoneypot = asText(req.body[challenge.honeypotField]);
+    if (staticHoneypot || dynamicHoneypot) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: "honeypot",
+        content: rawContent
+      });
+
+      const honeypotHits = await get(
+        "SELECT COUNT(*) AS count FROM comment_attempts WHERE ip_hash = ? AND reason = 'honeypot' AND datetime(created_at) >= datetime('now', ?)",
+        [ipHash, sqlSecondsWindow(commentBurstWindowSeconds)]
+      );
+      if (asCount(honeypotHits) >= commentHoneypotMuteThreshold) {
+        await muteCommentIp(ipHash, "honeypot");
+      }
+
+      return res.status(429).json({ error: commentSoftLimitError });
+    }
+
     if (name.length > maxCommentNameLength) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: "name_too_long",
+        content: rawContent
+      });
       return res
         .status(400)
         .json({ error: `Comment name is too long. Maximum is ${maxCommentNameLength} characters.` });
@@ -1456,72 +1716,153 @@ app.post("/comments", requireJsonRequest, commentAttemptLimiter, async (req, res
 
     const commentValidation = validateCommentContent(req.body.content);
     if (commentValidation.error) {
-      return res.status(400).json({ error: commentValidation.error });
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: `validation:${commentValidation.error}`,
+        content: rawContent
+      });
+      return res.status(400).json({
+        error: isSpamValidationError(commentValidation.error)
+          ? commentSoftLimitError
+          : commentValidation.error
+      });
     }
     const content = commentValidation.content;
+    const textHash = getCommentTextHash(content);
+    const fingerprint = getCommentTextFingerprint(content);
 
     let parentId = null;
     const hasParentId = rawParentId !== undefined && rawParentId !== null && String(rawParentId).trim() !== "";
     if (hasParentId) {
       parentId = Number(rawParentId);
       if (!Number.isInteger(parentId) || parentId <= 0) {
+        await recordCommentAttempt({
+          ipHash,
+          postId,
+          status: "rejected",
+          reason: "invalid_parent_comment_id",
+          content,
+          textHash,
+          fingerprint
+        });
         return res.status(400).json({ error: "Invalid parent comment id." });
       }
     }
 
     const postExists = await get("SELECT id FROM posts WHERE id = ?", [postId]);
     if (!postExists) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: "post_not_found",
+        content,
+        textHash,
+        fingerprint
+      });
       return res.status(404).json({ error: "Post not found." });
     }
 
     if (parentId !== null) {
-      const parentComment = await get("SELECT id, post_id FROM comments WHERE id = ?", [parentId]);
+      const parentComment = await get(
+        "SELECT id, post_id FROM comments WHERE id = ? AND status = 'visible'",
+        [parentId]
+      );
       if (!parentComment || Number(parentComment.post_id) !== postId) {
+        await recordCommentAttempt({
+          ipHash,
+          postId,
+          status: "rejected",
+          reason: "parent_comment_not_found",
+          content,
+          textHash,
+          fingerprint
+        });
         return res.status(404).json({ error: "Parent comment not found." });
       }
     }
 
-    const clientIp = getClientIp(req);
-    const now = Date.now();
-    const duplicateComment = checkDuplicateComment(clientIp, postId, content, now);
-    if (duplicateComment.duplicate) {
-      res.set("Retry-After", String(duplicateComment.retryAfterSeconds));
-      return res.status(429).json({
-        error: "You posted the same comment very recently. Please wait or edit it."
+    const consumedChallenge = await consumeCommentChallenge(challenge);
+    if (!consumedChallenge.ok) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: consumedChallenge.reason || "challenge_replay",
+        content,
+        textHash,
+        fingerprint
       });
+      return res.status(429).json({ error: commentSoftLimitError });
     }
 
-    const commentRateLimit = consumeCommentRateSlot(clientIp, now);
-    if (commentRateLimit.limited) {
-      res.set("Retry-After", String(commentRateLimit.retryAfterSeconds));
-      return res.status(429).json({ error: commentRateLimit.error });
+    const stats = await getCommentAttemptStats(ipHash, postId, textHash, fingerprint);
+    const persistentRateLimit = getPersistentCommentRateLimit(stats);
+    if (persistentRateLimit.limited) {
+      await recordCommentAttempt({
+        ipHash,
+        postId,
+        status: "rejected",
+        reason: `rate:${persistentRateLimit.reason}`,
+        content,
+        textHash,
+        fingerprint
+      });
+
+      if (stats.ipRejectedCount + 1 >= commentRejectedMuteThreshold) {
+        await muteCommentIp(ipHash, `rate:${persistentRateLimit.reason}`);
+      }
+
+      res.set("Retry-After", String(persistentRateLimit.retryAfterSeconds));
+      return res.status(429).json({ error: commentSoftLimitError });
     }
 
-    const postRateLimit = checkPostCommentRateLimit(postId, now);
-    if (postRateLimit.limited) {
-      res.set("Retry-After", String(postRateLimit.retryAfterSeconds));
-      return res.status(429).json({
-        error: "Comments are arriving too quickly on this post. Please wait a moment."
-      });
-    }
-
-    const globalRateLimit = checkGlobalCommentRateLimit(now);
-    if (globalRateLimit.limited) {
-      res.set("Retry-After", String(globalRateLimit.retryAfterSeconds));
-      return res.status(429).json({
-        error: "Comment system is busy right now. Please wait a moment."
-      });
-    }
+    const moderationScore = scoreCommentForModeration(req, { name, content, stats });
+    const commentStatus = moderationScore.score >= 5 ? "pending" : "visible";
+    const moderationReason =
+      commentStatus === "pending"
+        ? formatCommentModerationReason(moderationScore.score, moderationScore.reasons)
+        : "";
 
     await run(
-      "INSERT INTO comments (post_id, parent_id, name, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
-      [postId, parentId, name || null, content]
+      `
+        INSERT INTO comments (
+          post_id,
+          parent_id,
+          name,
+          content,
+          status,
+          moderation_reason,
+          text_hash,
+          text_fingerprint,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `,
+      [
+        postId,
+        parentId,
+        name || null,
+        content,
+        commentStatus,
+        moderationReason || null,
+        textHash,
+        fingerprint
+      ]
     );
-    rememberDuplicateComment(clientIp, postId, content, now);
-    recordPostCommentRate(postId, now);
-    recordGlobalCommentRate(now);
+    await recordCommentAttempt({
+      ipHash,
+      postId,
+      status: commentStatus,
+      reason: moderationReason || null,
+      content,
+      textHash,
+      fingerprint
+    });
 
-    res.status(201).json({ ok: true });
+    res.status(commentStatus === "pending" ? 202 : 201).json({ ok: true, status: commentStatus });
   } catch (error) {
     next(error);
   }
@@ -1563,6 +1904,122 @@ app.delete("/comments/:id", requireAdminWrite, async (req, res, next) => {
   }
 });
 
+app.post("/admin/comments/:id/approve", requireAdminWrite, async (req, res, next) => {
+  try {
+    const commentId = parsePositiveCommentId(req.params.id);
+    if (!commentId) {
+      return res.status(400).json({ error: "Invalid comment id." });
+    }
+
+    const existingComment = await get("SELECT id FROM comments WHERE id = ?", [commentId]);
+    if (!existingComment) {
+      return res.status(404).json({ error: "Comment not found." });
+    }
+
+    await run("UPDATE comments SET status = 'visible', moderation_reason = NULL WHERE id = ?", [commentId]);
+    res.json({ ok: true, id: commentId, status: "visible" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/admin/comments/:id/reject", requireAdminWrite, async (req, res, next) => {
+  try {
+    const commentId = parsePositiveCommentId(req.params.id);
+    if (!commentId) {
+      return res.status(400).json({ error: "Invalid comment id." });
+    }
+
+    const existingComment = await get("SELECT id FROM comments WHERE id = ?", [commentId]);
+    if (!existingComment) {
+      return res.status(404).json({ error: "Comment not found." });
+    }
+
+    await run("UPDATE comments SET status = 'rejected', moderation_reason = 'admin_rejected' WHERE id = ?", [
+      commentId
+    ]);
+    res.json({ ok: true, id: commentId, status: "rejected" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/admin/antispam", requireAdminSession, async (req, res, next) => {
+  try {
+    await cleanupExpiredCommentMutes();
+    const limit = Math.max(1, Math.min(100, commentAdminListLimit));
+    const pendingComments = await all(
+      `
+        SELECT id, post_id, parent_id, name, content, moderation_reason, created_at
+        FROM comments
+        WHERE status = 'pending'
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+    const attempts = await all(
+      `
+        SELECT
+          id,
+          post_id,
+          status,
+          reason,
+          substr(ip_hash, 1, 12) AS ip_hash_short,
+          content,
+          created_at
+        FROM comment_attempts
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+    const mutes = await all(
+      `
+        SELECT
+          id,
+          substr(ip_hash, 1, 12) AS ip_hash_short,
+          reason,
+          muted_until,
+          mute_count,
+          created_at
+        FROM comment_mutes
+        WHERE datetime(muted_until) > datetime('now')
+        ORDER BY datetime(muted_until) DESC, id DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    res.json({
+      pending_comments: pendingComments,
+      attempts,
+      mutes
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/admin/comment-mutes/:id", requireAdminWrite, async (req, res, next) => {
+  try {
+    const muteId = Number(req.params.id);
+    if (!Number.isInteger(muteId) || muteId <= 0) {
+      return res.status(400).json({ error: "Invalid mute id." });
+    }
+
+    const existingMute = await get("SELECT id FROM comment_mutes WHERE id = ?", [muteId]);
+    if (!existingMute) {
+      return res.status(404).json({ error: "Mute not found." });
+    }
+
+    await run("DELETE FROM comment_mutes WHERE id = ?", [muteId]);
+    res.json({ ok: true, id: muteId });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/comments/:id/like", likeLimiter, async (req, res, next) => {
   try {
     const commentId = parsePositiveCommentId(req.params.id);
@@ -1570,7 +2027,7 @@ app.post("/comments/:id/like", likeLimiter, async (req, res, next) => {
       return res.status(400).json({ error: "Invalid comment id." });
     }
 
-    const comment = await get("SELECT id FROM comments WHERE id = ?", [commentId]);
+    const comment = await get("SELECT id FROM comments WHERE id = ? AND status = 'visible'", [commentId]);
     if (!comment) {
       return res.status(404).json({ error: "Comment not found." });
     }

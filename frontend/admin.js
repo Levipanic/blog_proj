@@ -27,6 +27,9 @@
   const postResult = document.getElementById("postResult");
   const postPreviewTitle = document.getElementById("postPreviewTitle");
   const postPreviewBlocks = document.getElementById("postPreviewBlocks");
+  const antispamRefreshButton = document.getElementById("antispamRefreshButton");
+  const antispamStatus = document.getElementById("antispamStatus");
+  const antispamPanel = document.getElementById("antispamPanel");
   const addBlockButtons = Array.from(document.querySelectorAll("[data-add-block]"));
 
   if (
@@ -106,6 +109,210 @@
     const expiresText = formatAdminDate(sessionData && sessionData.expires_at);
     if (!expiresText) return message;
     return message + " " + t("admin.sessionExpiresAt", { time: expiresText }, "Session expires at " + expiresText + ".");
+  }
+
+  function truncateText(value, maxLength) {
+    const text = String(value || "");
+    const limit = Math.max(10, Number(maxLength) || 120);
+    return text.length > limit ? text.slice(0, limit - 1) + "..." : text;
+  }
+
+  function createSmallActionButton(label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "admin-button admin-button-secondary admin-antispam-action";
+    button.textContent = label;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await onClick();
+        await loadAntispam();
+      } catch (error) {
+        setStatus(antispamStatus, translateErrorMessage(error, "admin.antispamActionFailed", "Action failed."), true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return button;
+  }
+
+  function createAntispamSection(title, emptyText) {
+    const section = document.createElement("section");
+    section.className = "admin-antispam-section";
+    const heading = document.createElement("h3");
+    heading.className = "admin-antispam-title";
+    heading.textContent = title;
+    section.appendChild(heading);
+    section.dataset.emptyText = emptyText;
+    return section;
+  }
+
+  function appendAntispamEmpty(section) {
+    const empty = document.createElement("p");
+    empty.className = "status-text";
+    empty.textContent = section.dataset.emptyText || t("admin.antispamEmpty", null, "Nothing here.");
+    section.appendChild(empty);
+  }
+
+  function renderPendingComments(container, comments) {
+    const section = createAntispamSection(
+      t("admin.antispamPending", null, "Pending comments"),
+      t("admin.antispamNoPending", null, "No pending comments.")
+    );
+    if (!Array.isArray(comments) || comments.length === 0) {
+      appendAntispamEmpty(section);
+      container.appendChild(section);
+      return;
+    }
+
+    comments.forEach((comment) => {
+      const card = document.createElement("article");
+      card.className = "admin-antispam-card";
+
+      const meta = document.createElement("p");
+      meta.className = "meta-line";
+      meta.textContent =
+        "#" +
+        String(comment.id) +
+        " | post #" +
+        String(comment.post_id) +
+        " | " +
+        formatAdminDate(comment.created_at);
+      card.appendChild(meta);
+
+      const content = document.createElement("p");
+      content.className = "admin-antispam-content";
+      content.textContent = truncateText(comment.content, 260);
+      card.appendChild(content);
+
+      if (comment.moderation_reason) {
+        const reason = document.createElement("p");
+        reason.className = "admin-antispam-reason";
+        reason.textContent = String(comment.moderation_reason);
+        card.appendChild(reason);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "admin-antispam-actions";
+      actions.appendChild(
+        createSmallActionButton(t("admin.antispamApprove", null, "Approve"), () =>
+          requestJson("/admin/comments/" + encodeURIComponent(comment.id) + "/approve", { method: "POST" })
+        )
+      );
+      actions.appendChild(
+        createSmallActionButton(t("admin.antispamReject", null, "Reject"), () =>
+          requestJson("/admin/comments/" + encodeURIComponent(comment.id) + "/reject", { method: "POST" })
+        )
+      );
+      actions.appendChild(
+        createSmallActionButton(t("admin.delete", null, "Delete"), () =>
+          requestJson("/comments/" + encodeURIComponent(comment.id), { method: "DELETE" })
+        )
+      );
+      card.appendChild(actions);
+      section.appendChild(card);
+    });
+    container.appendChild(section);
+  }
+
+  function renderActiveMutes(container, mutes) {
+    const section = createAntispamSection(
+      t("admin.antispamMutes", null, "Active mutes"),
+      t("admin.antispamNoMutes", null, "No active mutes.")
+    );
+    if (!Array.isArray(mutes) || mutes.length === 0) {
+      appendAntispamEmpty(section);
+      container.appendChild(section);
+      return;
+    }
+
+    mutes.forEach((mute) => {
+      const row = document.createElement("article");
+      row.className = "admin-antispam-card";
+      const text = document.createElement("p");
+      text.textContent =
+        "#" +
+        String(mute.id) +
+        " | ip_hash " +
+        String(mute.ip_hash_short || "") +
+        " | until " +
+        formatAdminDate(mute.muted_until) +
+        " | " +
+        String(mute.reason || "mute");
+      row.appendChild(text);
+      const actions = document.createElement("div");
+      actions.className = "admin-antispam-actions";
+      actions.appendChild(
+        createSmallActionButton(t("admin.antispamUnmute", null, "Unmute"), () =>
+          requestJson("/admin/comment-mutes/" + encodeURIComponent(mute.id), { method: "DELETE" })
+        )
+      );
+      row.appendChild(actions);
+      section.appendChild(row);
+    });
+    container.appendChild(section);
+  }
+
+  function renderRecentAttempts(container, attempts) {
+    const section = createAntispamSection(
+      t("admin.antispamAttempts", null, "Recent attempts"),
+      t("admin.antispamNoAttempts", null, "No comment attempts yet.")
+    );
+    if (!Array.isArray(attempts) || attempts.length === 0) {
+      appendAntispamEmpty(section);
+      container.appendChild(section);
+      return;
+    }
+
+    attempts.forEach((attempt) => {
+      const row = document.createElement("article");
+      row.className = "admin-antispam-card admin-antispam-attempt";
+      const meta = document.createElement("p");
+      meta.className = "meta-line";
+      meta.textContent =
+        "#" +
+        String(attempt.id) +
+        " | " +
+        String(attempt.status || "") +
+        " | post #" +
+        String(attempt.post_id || "-") +
+        " | ip_hash " +
+        String(attempt.ip_hash_short || "") +
+        " | " +
+        formatAdminDate(attempt.created_at);
+      row.appendChild(meta);
+      const reason = document.createElement("p");
+      reason.className = "admin-antispam-reason";
+      reason.textContent = String(attempt.reason || "-");
+      row.appendChild(reason);
+      if (attempt.content) {
+        const content = document.createElement("p");
+        content.className = "admin-antispam-content";
+        content.textContent = truncateText(attempt.content, 180);
+        row.appendChild(content);
+      }
+      section.appendChild(row);
+    });
+    container.appendChild(section);
+  }
+
+  function renderAntispamPanel(data) {
+    if (!antispamPanel) return;
+    antispamPanel.innerHTML = "";
+    renderPendingComments(antispamPanel, data && data.pending_comments);
+    renderActiveMutes(antispamPanel, data && data.mutes);
+    renderRecentAttempts(antispamPanel, data && data.attempts);
+  }
+
+  async function loadAntispam() {
+    if (!antispamPanel) return;
+    setStatus(antispamStatus, t("admin.antispamLoading", null, "Loading antispam data..."), false);
+    if (!(await ensureActiveAdminSession())) {
+      return;
+    }
+    const data = await requestJson("/admin/antispam");
+    renderAntispamPanel(data);
+    setStatus(antispamStatus, t("admin.antispamLoaded", null, "Antispam data loaded."), false);
   }
 
   function readStoredDraft() {
@@ -209,6 +416,9 @@
     );
     setHeaderAdminUi(true);
     schedulePostPreviewRender();
+    loadAntispam().catch((error) => {
+      setStatus(antispamStatus, translateErrorMessage(error, "admin.antispamLoadFailed", "Could not load antispam data."), true);
+    });
   }
 
   function deriveFileName(src) {
@@ -886,6 +1096,14 @@
       } finally {
         adminLogoutButton.disabled = false;
       }
+    });
+  }
+
+  if (antispamRefreshButton) {
+    antispamRefreshButton.addEventListener("click", () => {
+      loadAntispam().catch((error) => {
+        setStatus(antispamStatus, translateErrorMessage(error, "admin.antispamLoadFailed", "Could not load antispam data."), true);
+      });
     });
   }
 

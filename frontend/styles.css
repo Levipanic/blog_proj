@@ -2118,6 +2118,60 @@ select {
   word-break: break-word;
 }
 
+.admin-antispam-panel {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.72rem;
+}
+
+.admin-antispam-section {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.62rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: var(--surface-alt);
+}
+
+.admin-antispam-title {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.admin-antispam-card {
+  display: grid;
+  gap: 0.42rem;
+  padding: 0.56rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+}
+
+.admin-antispam-content,
+.admin-antispam-reason {
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.admin-antispam-reason {
+  color: var(--text-muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+}
+
+.admin-antispam-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.admin-antispam-action {
+  width: auto;
+  min-height: 2.25rem;
+  padding: 0.42rem 0.62rem;
+}
+
 .status-ok {
   color: var(--status-ok);
 }

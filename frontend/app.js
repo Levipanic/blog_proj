@@ -91,6 +91,64 @@ async function fetchJson(url, options) {
   return data;
 }
 
+async function fetchCommentChallenge(postId) {
+  return fetchJson("/comments/challenge/" + encodeURIComponent(postId));
+}
+
+function installCommentChallenge(form, challenge) {
+  if (!form || !challenge || typeof challenge !== "object") {
+    return false;
+  }
+
+  const token = String(challenge.token || "");
+  const honeypotField = String(challenge.honeypot_field || "");
+  if (!token || !/^hp_[a-f0-9]{12}$/i.test(honeypotField)) {
+    return false;
+  }
+
+  Array.from(form.querySelectorAll(".comment-dynamic-honeypot")).forEach((element) => {
+    element.remove();
+  });
+
+  let tokenInput = form.elements.challenge_token;
+  if (!tokenInput) {
+    tokenInput = document.createElement("input");
+    tokenInput.type = "hidden";
+    tokenInput.name = "challenge_token";
+    form.appendChild(tokenInput);
+  }
+  tokenInput.value = token;
+
+  const honeypotWrap = form.querySelector(".honeypot-wrap") || form;
+  const dynamicInput = document.createElement("input");
+  dynamicInput.type = "text";
+  dynamicInput.name = honeypotField;
+  dynamicInput.className = "honeypot comment-dynamic-honeypot";
+  dynamicInput.tabIndex = -1;
+  dynamicInput.autocomplete = "off";
+  honeypotWrap.appendChild(dynamicInput);
+  form.dataset.commentHoneypotField = honeypotField;
+  return true;
+}
+
+function readCommentChallengePayload(form) {
+  const payload = {};
+  if (!form || !form.elements) {
+    return payload;
+  }
+
+  if (form.elements.challenge_token) {
+    payload.challenge_token = String(form.elements.challenge_token.value || "").trim();
+  }
+
+  const honeypotField = form.dataset ? String(form.dataset.commentHoneypotField || "") : "";
+  if (honeypotField && form.elements[honeypotField]) {
+    payload[honeypotField] = String(form.elements[honeypotField].value || "").trim();
+  }
+
+  return payload;
+}
+
 const adminUiState = {
   checked: false,
   authenticated: false
@@ -2562,6 +2620,27 @@ async function initPostPage() {
     commentStatusEl.textContent = message;
   }
 
+  async function prepareCommentForm(form, statusElement) {
+    try {
+      const challenge = await fetchCommentChallenge(postId);
+      if (!installCommentChallenge(form, challenge)) {
+        throw new Error("Invalid comment challenge.");
+      }
+      return true;
+    } catch (error) {
+      if (statusElement) {
+        statusElement.textContent = t(
+          "post.commentChallengeError",
+          null,
+          "Could not prepare the comment form. Refresh and try again."
+        );
+        statusElement.classList.remove("status-ok");
+        statusElement.classList.add("status-error");
+      }
+      return false;
+    }
+  }
+
   async function submitComment(payload, statusElement, successKey, successFallback) {
     if (statusElement) {
       statusElement.textContent = t("post.commentSending", null, "Sending...");
@@ -2569,7 +2648,7 @@ async function initPostPage() {
     }
 
     try {
-      await fetchJson("/comments", {
+      const data = await fetchJson("/comments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -2578,7 +2657,10 @@ async function initPostPage() {
       });
 
       if (statusElement) {
-        statusElement.textContent = t(successKey, null, successFallback);
+        statusElement.textContent =
+          data && data.status === "pending"
+            ? t("post.commentPending", null, "Comment received and will appear after review.")
+            : t(successKey, null, successFallback);
         statusElement.classList.remove("status-error");
         statusElement.classList.add("status-ok");
       }
@@ -2598,13 +2680,7 @@ async function initPostPage() {
   }
 
   async function handleReplySubmit(replyPayload, replyStatusEl) {
-    const payload = {
-      post_id: postId,
-      parent_id: replyPayload.parent_id,
-      name: replyPayload.name,
-      content: replyPayload.content,
-      website: replyPayload.website
-    };
+    const payload = Object.assign({}, replyPayload, { post_id: postId });
     const posted = await submitComment(
       payload,
       replyStatusEl,
@@ -2623,7 +2699,8 @@ async function initPostPage() {
       adminAuthenticated,
       onCommentDeleted: refreshComments,
       onDeleteError: showDeleteError,
-      onReplySubmit: handleReplySubmit
+      onReplySubmit: handleReplySubmit,
+      prepareCommentForm
     });
   }
 
@@ -2652,8 +2729,10 @@ async function initPostPage() {
     adminAuthenticated,
     onCommentDeleted: refreshComments,
     onDeleteError: showDeleteError,
-    onReplySubmit: handleReplySubmit
+    onReplySubmit: handleReplySubmit,
+    prepareCommentForm
   });
+  await prepareCommentForm(commentFormEl, commentStatusEl);
   postStatusEl.textContent = "";
   document.title = t(
     "title.postWithName",
@@ -2670,8 +2749,17 @@ async function initPostPage() {
       post_id: postId,
       name: String(commentFormEl.elements.name.value || "").trim(),
       content: String(commentFormEl.elements.content.value || "").trim(),
-      website: String(commentFormEl.elements.website.value || "").trim()
+      website: String(commentFormEl.elements.website.value || "").trim(),
+      ...readCommentChallengePayload(commentFormEl)
     };
+
+    if (!payload.challenge_token) {
+      const prepared = await prepareCommentForm(commentFormEl, commentStatusEl);
+      Object.assign(payload, readCommentChallengePayload(commentFormEl));
+      if (!prepared || !payload.challenge_token) {
+        return;
+      }
+    }
 
     const posted = await submitComment(
       payload,
@@ -2683,6 +2771,7 @@ async function initPostPage() {
       commentFormEl.reset();
       await refreshComments();
     }
+    await prepareCommentForm(commentFormEl, commentStatusEl);
   });
 }
 
@@ -3070,6 +3159,9 @@ function renderCommentNode(commentNode, depth, options) {
         ? t("post.cancelReply", null, "Cancel")
         : t("post.reply", null, "Reply");
       if (isOpen) {
+        if (typeof renderOptions.prepareCommentForm === "function" && !replyForm.elements.challenge_token) {
+          renderOptions.prepareCommentForm(replyForm, replyStatus);
+        }
         replyContentInput.focus();
       }
     }
@@ -3087,7 +3179,8 @@ function renderCommentNode(commentNode, depth, options) {
         parent_id: commentNode.id,
         name: String(replyNameInput.value || "").trim(),
         content: String(replyContentInput.value || "").trim(),
-        website: String(websiteInput.value || "").trim()
+        website: String(websiteInput.value || "").trim(),
+        ...readCommentChallengePayload(replyForm)
       };
 
       if (!payload.content) {
@@ -3100,6 +3193,15 @@ function renderCommentNode(commentNode, depth, options) {
       replySubmitButton.disabled = true;
       replyStatus.classList.remove("status-ok", "status-error");
 
+      if (!payload.challenge_token && typeof renderOptions.prepareCommentForm === "function") {
+        const prepared = await renderOptions.prepareCommentForm(replyForm, replyStatus);
+        Object.assign(payload, readCommentChallengePayload(replyForm));
+        if (!prepared || !payload.challenge_token) {
+          replySubmitButton.disabled = false;
+          return;
+        }
+      }
+
       const posted = await renderOptions.onReplySubmit(payload, replyStatus);
       if (posted) {
         replyForm.reset();
@@ -3107,6 +3209,10 @@ function renderCommentNode(commentNode, depth, options) {
       } else {
         replyStatus.classList.remove("status-ok");
         replyStatus.classList.add("status-error");
+      }
+
+      if (typeof renderOptions.prepareCommentForm === "function") {
+        await renderOptions.prepareCommentForm(replyForm, replyStatus);
       }
 
       replySubmitButton.disabled = false;
