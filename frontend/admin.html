@@ -62,6 +62,11 @@
         </section>
 
         <section id="adminEditorView" hidden>
+          <nav id="adminSectionNav" class="admin-section-nav" aria-label="Разделы админки" data-i18n-aria-label="admin.sectionNavAria" hidden>
+            <button type="button" class="admin-button admin-button-secondary admin-section-nav-btn" id="adminNavCreate" data-i18n="admin.navCreate">Создание поста</button>
+            <button type="button" class="admin-button admin-button-secondary admin-section-nav-btn" id="adminNavAntispam" data-i18n="admin.navAntispam">Антиспам</button>
+          </nav>
+
           <div class="admin-section admin-section-first">
             <h2 class="admin-section-title" data-i18n="admin.sectionUpload">1) Загрузка файла</h2>
             <form id="uploadForm" class="admin-form">
@@ -76,7 +81,7 @@
             </button>
           </div>
 
-          <div class="admin-section">
+          <div id="adminCreateSection" class="admin-section">
             <h2 class="admin-section-title" data-i18n="admin.sectionCreate">2) Создать пост</h2>
             <div class="admin-post-workbench">
               <div class="admin-post-editor">
@@ -181,7 +186,7 @@
             </div>
           </div>
 
-          <div class="admin-section">
+          <div id="adminAntispamSection" class="admin-section">
             <h2 class="admin-section-title" data-i18n="admin.sectionAntispam">3) Антиспам</h2>
             <button id="antispamRefreshButton" type="button" class="admin-button admin-button-secondary" data-i18n="admin.antispamRefresh">
               Обновить антиспам

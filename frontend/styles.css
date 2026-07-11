@@ -2118,6 +2118,19 @@ select {
   word-break: break-word;
 }
 
+.admin-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.admin-section-nav-btn {
+  width: auto;
+  min-height: 2.4rem;
+  padding: 0.42rem 0.75rem;
+}
+
 .admin-antispam-panel {
   display: grid;
   gap: 0.8rem;

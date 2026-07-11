@@ -30,6 +30,11 @@
   const antispamRefreshButton = document.getElementById("antispamRefreshButton");
   const antispamStatus = document.getElementById("antispamStatus");
   const antispamPanel = document.getElementById("antispamPanel");
+  const adminSectionNav = document.getElementById("adminSectionNav");
+  const adminNavCreate = document.getElementById("adminNavCreate");
+  const adminNavAntispam = document.getElementById("adminNavAntispam");
+  const adminCreateSection = document.getElementById("adminCreateSection");
+  const adminAntispamSection = document.getElementById("adminAntispamSection");
   const addBlockButtons = Array.from(document.querySelectorAll("[data-add-block]"));
 
   if (
@@ -399,12 +404,20 @@
     setHeaderAdminUi(false);
   }
 
+  function scrollToSection(element) {
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function showEditorView(sessionMessage, sessionData) {
     if (sessionData && typeof sessionData.csrf_token === "string") {
       adminCsrfToken = sessionData.csrf_token;
     }
     adminLoginView.hidden = true;
     adminEditorView.hidden = false;
+    if (adminSectionNav) {
+      adminSectionNav.hidden = false;
+    }
     setStatus(adminLoginStatus, "", false);
     setStatus(
       adminSessionStatus,
@@ -1105,6 +1118,13 @@
         setStatus(antispamStatus, translateErrorMessage(error, "admin.antispamLoadFailed", "Could not load antispam data."), true);
       });
     });
+  }
+
+  if (adminNavCreate) {
+    adminNavCreate.addEventListener("click", () => scrollToSection(adminCreateSection));
+  }
+  if (adminNavAntispam) {
+    adminNavAntispam.addEventListener("click", () => scrollToSection(adminAntispamSection));
   }
 
   uploadForm.addEventListener("submit", async (event) => {
