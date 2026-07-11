@@ -3,6 +3,7 @@ function bootstrap() {
   const isPublicPage = page === "feed" || page === "post";
 
   if (isPublicPage) {
+    initReaderSettingsUi();
     initPersistentAudioUi();
     audioPlayback.restoreFromSession();
     initTopbarAdminUi().catch((error) => {
@@ -39,6 +40,12 @@ const COMMENT_COLLAPSE_PREVIEW_LENGTH = 280;
 const FEED_COMMENT_PREVIEW_LIMIT_DESKTOP = 2;
 const FEED_COMMENT_PREVIEW_LIMIT_MOBILE = 1;
 const FEED_MOBILE_BREAKPOINT_QUERY = "(max-width: 640px)";
+const LANGUAGE_STORAGE_KEY = "stereoDamageLanguage";
+const THEME_STORAGE_KEY = "stereoDamageTheme";
+const FEED_VIEW_STORAGE_KEY = "stereoDamageFeedView";
+const READING_PROGRESS_STORAGE_KEY = "stereoDamageReadingProgress";
+const SMOOTH_SCROLL_STORAGE_KEY = "stereoDamageSmoothScroll";
+const READING_COMPLETE_THRESHOLD = 0.9;
 const audioPlayback = createGlobalAudioPlayback();
 
 function t(key, params, fallback) {
@@ -226,6 +233,445 @@ function clamp01(value) {
   if (number < 0) return 0;
   if (number > 1) return 1;
   return number;
+}
+
+function readJsonStorage(key, fallback) {
+  try {
+    const rawValue = localStorage.getItem(key);
+    if (!rawValue) return fallback;
+    return JSON.parse(rawValue);
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeJsonStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // Reader settings are optional; keep the page usable when storage is blocked.
+  }
+}
+
+function readStringStorage(key, fallback) {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeStringStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    // Ignore storage failures; the UI can still update for this page view.
+  }
+}
+
+function removeStorageKey(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    return;
+  }
+}
+
+function getSavedFeedView() {
+  return readStringStorage(FEED_VIEW_STORAGE_KEY, "list") === "grid" ? "grid" : "list";
+}
+
+function applyFeedView(view) {
+  const safeView = view === "grid" ? "grid" : "list";
+  const feedListEl = document.getElementById("feedList");
+  if (feedListEl) {
+    feedListEl.classList.toggle("feed-list-grid", safeView === "grid");
+  }
+
+  const controls = Array.from(document.querySelectorAll("[data-feed-view-option]"));
+  controls.forEach((control) => {
+    const active = control.dataset.feedViewOption === safeView;
+    control.classList.toggle("is-active", active);
+    control.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function isSmoothScrollEnabled() {
+  return readStringStorage(SMOOTH_SCROLL_STORAGE_KEY, "0") === "1";
+}
+
+function applySmoothScroll(enabled) {
+  const active = Boolean(enabled);
+  document.documentElement.setAttribute("data-smooth-scroll", active ? "on" : "off");
+
+  const toggle = document.getElementById("smoothScrollToggle");
+  if (toggle) {
+    toggle.textContent = active
+      ? t("settings.on", null, "On")
+      : t("settings.off", null, "Off");
+    toggle.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function scrollToReadingPosition(top) {
+  window.scrollTo({
+    top: Math.max(0, Number(top) || 0),
+    behavior: isSmoothScrollEnabled() ? "smooth" : "auto"
+  });
+}
+
+function readProgressMap() {
+  const value = readJsonStorage(READING_PROGRESS_STORAGE_KEY, {});
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function getReadingProgressEntry(postId) {
+  const map = readProgressMap();
+  const entry = map[String(postId)];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  return entry;
+}
+
+function saveReadingProgress(postId, progress, scrollY) {
+  const safePostId = String(postId || "");
+  if (!safePostId) return;
+
+  const map = readProgressMap();
+  const previousEntry = map[safePostId] || {};
+  const safeProgress = clamp01(progress);
+  const previousProgress = clamp01(previousEntry.progress);
+  const nextProgress = Math.max(previousProgress, safeProgress);
+  const parsedScrollY = Number(scrollY);
+  const nextScrollY = Number.isFinite(parsedScrollY)
+    ? Math.max(0, Math.floor(parsedScrollY))
+    : Math.max(0, Math.floor(Number(previousEntry.scroll_y) || 0));
+  const now = new Date().toISOString();
+
+  map[safePostId] = {
+    opened_at: previousEntry.opened_at || now,
+    updated_at: now,
+    progress: nextProgress,
+    scroll_y: nextScrollY,
+    completed: Boolean(previousEntry.completed || nextProgress >= READING_COMPLETE_THRESHOLD)
+  };
+
+  writeJsonStorage(READING_PROGRESS_STORAGE_KEY, map);
+}
+
+function getReadingStatus(postId) {
+  const entry = getReadingProgressEntry(postId);
+  if (!entry) {
+    return {
+      text: t("feed.statusNew", null, "new!"),
+      className: "post-read-status post-read-status-new"
+    };
+  }
+
+  const progress = clamp01(entry.progress);
+  if (entry.completed || progress >= READING_COMPLETE_THRESHOLD) {
+    return {
+      text: t("feed.statusRead", null, "read"),
+      className: "post-read-status post-read-status-read"
+    };
+  }
+
+  const percent = Math.round(progress * 100);
+  return {
+    text: t("feed.statusStarted", { percent }, "started (" + percent + "%)"),
+    className: "post-read-status post-read-status-started"
+  };
+}
+
+function applyReadingStatusElement(element, postId) {
+  const status = getReadingStatus(postId);
+  element.className = status.className;
+  element.textContent = status.text;
+}
+
+function updateReadingStatusElements(postId) {
+  const selector = '[data-reading-status-post-id="' + String(postId) + '"]';
+  Array.from(document.querySelectorAll(selector)).forEach((element) => {
+    applyReadingStatusElement(element, postId);
+  });
+}
+
+function createReadingStatusElement(postId) {
+  const status = document.createElement("span");
+  status.dataset.readingStatusPostId = String(postId);
+  applyReadingStatusElement(status, postId);
+  return status;
+}
+
+function getReadingMinutes(post) {
+  const minutes = Number(post && post.reading_minutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+  return Math.max(1, Math.floor(minutes));
+}
+
+function createReadingTimeElement(post) {
+  const minutes = getReadingMinutes(post);
+  if (!minutes) return null;
+
+  const readingTime = document.createElement("span");
+  readingTime.className = "tweet-reading-time";
+  readingTime.textContent = t("feed.readingTime", { minutes }, "~" + minutes + " min read");
+  return readingTime;
+}
+
+function createContinueReadingPrompt(postId) {
+  const entry = getReadingProgressEntry(postId);
+  if (!entry || entry.completed) return null;
+
+  const progress = clamp01(entry.progress);
+  const scrollY = Number(entry.scroll_y);
+  if (progress < 0.03 || !Number.isFinite(scrollY) || scrollY < 80) return null;
+
+  const wrap = document.createElement("div");
+  wrap.className = "continue-reading-box";
+
+  const percent = Math.round(progress * 100);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "continue-reading-button";
+  button.textContent = t("post.continueAt", { percent }, "Continue from " + percent + "%");
+  button.setAttribute("aria-label", t("post.continueReading", null, "Continue reading"));
+  button.addEventListener("click", () => {
+    scrollToReadingPosition(scrollY);
+    wrap.remove();
+  });
+
+  wrap.appendChild(button);
+  return wrap;
+}
+
+function slugifyHeading(text, index) {
+  const base = String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return "section-" + (base || "heading") + "-" + String(index + 1);
+}
+
+function renderPostToc(blocksWrap) {
+  const tocEl = document.getElementById("postToc");
+  if (!tocEl) return;
+
+  const headings = Array.from(blocksWrap.querySelectorAll("h2.post-heading"));
+  tocEl.innerHTML = "";
+
+  if (headings.length < 2) {
+    tocEl.hidden = true;
+    return;
+  }
+
+  const details = document.createElement("details");
+  details.className = "post-toc-details";
+
+  const summary = document.createElement("summary");
+  summary.className = "post-toc-summary";
+  summary.textContent = t("post.toc", null, "Table of contents");
+  details.appendChild(summary);
+
+  const list = document.createElement("ol");
+  list.className = "post-toc-list";
+
+  const usedIds = new Set();
+  headings.forEach((heading, index) => {
+    let id = heading.id || slugifyHeading(heading.textContent, index);
+    while (usedIds.has(id)) {
+      id += "-" + String(usedIds.size + 1);
+    }
+    usedIds.add(id);
+    heading.id = id;
+
+    const item = document.createElement("li");
+    item.className = "post-toc-item";
+
+    const link = document.createElement("a");
+    link.className = "post-toc-link";
+    link.href = "#" + encodeURIComponent(id);
+    link.textContent = heading.textContent || t("post.toc", null, "Table of contents");
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      const top = heading.getBoundingClientRect().top + (window.scrollY || window.pageYOffset || 0) - 56;
+      scrollToReadingPosition(top);
+      if (window.matchMedia && window.matchMedia("(max-width: 979px)").matches) {
+        details.open = false;
+      }
+    });
+
+    item.appendChild(link);
+    list.appendChild(item);
+  });
+
+  details.appendChild(list);
+  tocEl.appendChild(details);
+  tocEl.hidden = false;
+
+  function syncTocMode() {
+    details.open = !(window.matchMedia && window.matchMedia("(max-width: 979px)").matches);
+  }
+
+  syncTocMode();
+  if (window.matchMedia) {
+    const mediaQuery = window.matchMedia("(max-width: 979px)");
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", syncTocMode);
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(syncTocMode);
+    }
+  }
+}
+
+function createMetaSeparator() {
+  const dot = document.createElement("span");
+  dot.className = "tweet-sep";
+  dot.textContent = "-";
+  return dot;
+}
+
+function appendPostMeta(headerMeta, post) {
+  headerMeta.classList.add("tweet-meta-line");
+  headerMeta.appendChild(createLikeControl(post.id, post.likes, { inline: true }));
+
+  const handle = document.createElement("span");
+  handle.className = "tweet-handle";
+  handle.textContent = BLOG_HANDLE;
+  headerMeta.appendChild(handle);
+
+  headerMeta.appendChild(createMetaSeparator());
+
+  const date = document.createElement("span");
+  date.className = "tweet-date";
+  date.textContent = formatDate(post.created_at);
+  headerMeta.appendChild(date);
+
+  const readingTime = createReadingTimeElement(post);
+  if (readingTime) {
+    headerMeta.appendChild(createMetaSeparator());
+    headerMeta.appendChild(readingTime);
+  }
+
+  headerMeta.appendChild(createMetaSeparator());
+  headerMeta.appendChild(createReadingStatusElement(post.id));
+}
+
+function initReaderSettingsUi() {
+  const settingsToggle = document.getElementById("readerSettingsToggle");
+  const settingsPanel = document.getElementById("readerSettingsPanel");
+  const resetButton = document.getElementById("resetReaderDataButton");
+  const smoothScrollToggle = document.getElementById("smoothScrollToggle");
+
+  applyFeedView(getSavedFeedView());
+  applySmoothScroll(isSmoothScrollEnabled());
+
+  Array.from(document.querySelectorAll("[data-feed-view-option]")).forEach((control) => {
+    control.addEventListener("click", () => {
+      const view = control.dataset.feedViewOption === "grid" ? "grid" : "list";
+      writeStringStorage(FEED_VIEW_STORAGE_KEY, view);
+      applyFeedView(view);
+    });
+  });
+
+  if (settingsToggle && settingsPanel) {
+    function setSettingsOpen(open) {
+      settingsPanel.hidden = !open;
+      settingsToggle.setAttribute("aria-expanded", String(open));
+    }
+
+    settingsToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setSettingsOpen(settingsPanel.hidden);
+    });
+
+    settingsPanel.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    document.addEventListener("click", () => {
+      setSettingsOpen(false);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        setSettingsOpen(false);
+      }
+    });
+  }
+
+  if (resetButton) {
+    resetButton.addEventListener("click", () => {
+      removeStorageKey(LANGUAGE_STORAGE_KEY);
+      removeStorageKey(THEME_STORAGE_KEY);
+      removeStorageKey(FEED_VIEW_STORAGE_KEY);
+      removeStorageKey(READING_PROGRESS_STORAGE_KEY);
+      removeStorageKey(SMOOTH_SCROLL_STORAGE_KEY);
+      window.location.reload();
+    });
+  }
+
+  if (smoothScrollToggle) {
+    smoothScrollToggle.addEventListener("click", () => {
+      const nextEnabled = !isSmoothScrollEnabled();
+      writeStringStorage(SMOOTH_SCROLL_STORAGE_KEY, nextEnabled ? "1" : "0");
+      applySmoothScroll(nextEnabled);
+    });
+  }
+
+  window.addEventListener("languagechange", () => {
+    applySmoothScroll(isSmoothScrollEnabled());
+  });
+}
+
+function updateReadingProgressBar(progress) {
+  const fill = document.getElementById("readingProgressFill");
+  if (!fill) return;
+  fill.style.width = (clamp01(progress) * 100).toFixed(2) + "%";
+}
+
+function initPostReadingProgress(postId) {
+  let ticking = false;
+
+  function measureProgress() {
+    const article = document.querySelector(".tweet-card-full");
+    if (!article) return 0;
+
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+    const articleTop = article.getBoundingClientRect().top + scrollY;
+    const articleHeight = article.offsetHeight || 0;
+    const maxScroll = articleTop + articleHeight - viewportHeight;
+
+    if (maxScroll <= articleTop) {
+      return 1;
+    }
+
+    return clamp01((scrollY - articleTop) / (maxScroll - articleTop));
+  }
+
+  function persistProgress() {
+    ticking = false;
+    const progress = measureProgress();
+    saveReadingProgress(postId, progress, window.scrollY || window.pageYOffset || 0);
+    updateReadingProgressBar(progress);
+    updateReadingStatusElements(postId);
+  }
+
+  function schedulePersist() {
+    if (ticking) return;
+    ticking = true;
+    window.requestAnimationFrame(persistProgress);
+  }
+
+  const initialProgress = measureProgress();
+  saveReadingProgress(postId, initialProgress);
+  updateReadingProgressBar(initialProgress);
+  updateReadingStatusElements(postId);
+  window.addEventListener("scroll", schedulePersist, { passive: true });
+  window.addEventListener("resize", schedulePersist);
+  window.addEventListener("pagehide", persistProgress);
 }
 
 function formatAudioTime(secondsValue) {
@@ -1638,6 +2084,17 @@ function createLikeControl(postId, initialLikes, options) {
   status.setAttribute("aria-live", "polite");
   wrap.appendChild(status);
 
+  function playLikeBurst() {
+    const heart = document.createElement("span");
+    heart.className = "like-burst-heart";
+    heart.textContent = "❤️";
+    heart.setAttribute("aria-hidden", "true");
+    wrap.appendChild(heart);
+    heart.addEventListener("animationend", () => {
+      heart.remove();
+    });
+  }
+
   function applyLikeState() {
     const likeText = formatLikeText(likes);
     if (inline) {
@@ -1665,6 +2122,7 @@ function createLikeControl(postId, initialLikes, options) {
       });
       likes = normalizeLikeCount(result && result.likes);
       applyLikeState();
+      playLikeBurst();
       const successMessage = t("feed.likeSuccess", null, "Thanks! Like saved.");
       status.textContent = successMessage;
 
@@ -1845,24 +2303,7 @@ async function initFeedPage() {
     header.className = "tweet-head";
     const headerMeta = document.createElement("div");
     headerMeta.className = "tweet-head-meta";
-    const likeControl = createLikeControl(post.id, post.likes, { inline: true });
-
-    const handle = document.createElement("span");
-    handle.className = "tweet-handle";
-    handle.textContent = BLOG_HANDLE;
-
-    const dot = document.createElement("span");
-    dot.className = "tweet-sep";
-    dot.textContent = "-";
-
-    const date = document.createElement("span");
-    date.className = "tweet-date";
-    date.textContent = formatDate(post.created_at);
-
-    headerMeta.appendChild(likeControl);
-    headerMeta.appendChild(handle);
-    headerMeta.appendChild(dot);
-    headerMeta.appendChild(date);
+    appendPostMeta(headerMeta, post);
     header.appendChild(headerMeta);
 
     if (adminAuthenticated) {
@@ -2072,6 +2513,7 @@ async function initPostPage() {
     },
     onDeleteError: showDeleteError
   });
+  initPostReadingProgress(post.id);
   renderComments(commentListEl, comments, {
     adminAuthenticated,
     onCommentDeleted: refreshComments,
@@ -2124,26 +2566,7 @@ function renderPost(postViewEl, post, options) {
   const headerMeta = document.createElement("div");
   headerMeta.className = "tweet-head-meta";
 
-  const author = document.createElement("strong");
-  author.className = "tweet-user";
-  author.textContent = BLOG_NAME;
-
-  const handle = document.createElement("span");
-  handle.className = "tweet-handle";
-  handle.textContent = BLOG_HANDLE;
-
-  const dot = document.createElement("span");
-  dot.className = "tweet-sep";
-  dot.textContent = "·";
-
-  const date = document.createElement("span");
-  date.className = "tweet-date";
-  date.textContent = formatDate(post.created_at);
-
-  headerMeta.appendChild(author);
-  headerMeta.appendChild(handle);
-  headerMeta.appendChild(dot);
-  headerMeta.appendChild(date);
+  appendPostMeta(headerMeta, post);
   header.appendChild(headerMeta);
   card.appendChild(header);
 
@@ -2151,7 +2574,11 @@ function renderPost(postViewEl, post, options) {
   title.className = "tweet-title tweet-title-full";
   title.textContent = asText(post.title) || t("feed.untitled", null, "Untitled post");
   card.appendChild(title);
-  card.appendChild(createLikeControl(post.id, post.likes));
+
+  const continuePrompt = createContinueReadingPrompt(post.id);
+  if (continuePrompt) {
+    card.appendChild(continuePrompt);
+  }
 
   if (adminAuthenticated) {
     const actions = document.createElement("div");
@@ -2188,6 +2615,7 @@ function renderPost(postViewEl, post, options) {
 
   card.appendChild(blocksWrap);
   postViewEl.appendChild(card);
+  renderPostToc(blocksWrap);
 }
 
 function renderPostBlock(block) {

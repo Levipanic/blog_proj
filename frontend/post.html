@@ -13,6 +13,9 @@
     <script src="/app.js" defer></script>
   </head>
   <body data-page="post">
+    <div id="readingProgressBar" class="reading-progress-bar" aria-hidden="true">
+      <span id="readingProgressFill" class="reading-progress-fill"></span>
+    </div>
     <header class="topbar">
       <div class="topbar-inner">
         <p class="brand-mark" data-i18n="brand.name">StereoDamage</p>
@@ -22,22 +25,48 @@
             <a href="#" class="top-link active" data-i18n="nav.post">Пост</a>
             <a href="/admin" class="top-link" id="adminEntryLink" data-i18n="nav.admin">Админ</a>
           </nav>
-          <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
-            <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
-            <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
-          </div>
           <button id="adminLogoutButton" class="top-action-button" type="button" hidden data-i18n="nav.logout">Выйти</button>
-          <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
+          <div class="settings-menu">
+            <button
+              id="readerSettingsToggle"
+              class="settings-toggle"
+              type="button"
+              aria-label="Настройки"
+              aria-controls="readerSettingsPanel"
+              aria-expanded="false"
+              data-i18n-aria-label="settings.open"
+            >⚙️</button>
+            <div id="readerSettingsPanel" class="settings-panel" hidden>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.language">Язык</span>
+                <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
+                  <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
+                  <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.theme">Тема</span>
+                <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.smoothScroll">Плавная прокрутка</span>
+                <button id="smoothScrollToggle" class="settings-small-button" type="button" aria-pressed="false">Выкл</button>
+              </div>
+              <button id="resetReaderDataButton" class="settings-reset-button" type="button" data-i18n="settings.reset">Очистить мои настройки и прогресс</button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
 
-    <main class="page-shell">
+    <main class="page-shell post-page-shell">
       <article class="panel post-article">
         <p class="back-row"><a href="/" class="inline-link" data-i18n="post.back"><- Назад к ленте</a></p>
         <p id="postStatus" class="status-text" data-i18n="post.loading">Загрузка поста...</p>
         <section id="postView"></section>
       </article>
+
+      <aside id="postToc" class="post-toc" hidden></aside>
 
       <section class="panel comments-panel">
         <h2 data-i18n="post.comments">Комментарии</h2>

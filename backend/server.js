@@ -1241,6 +1241,33 @@ function getPreviewText(blocks) {
   return firstParagraph ? firstParagraph.text : "";
 }
 
+function getReadingText(blocks) {
+  if (!Array.isArray(blocks)) return "";
+
+  return blocks
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      if (block.type === "paragraph" || block.type === "heading" || block.type === "quote") {
+        return asText(block.text);
+      }
+      if (block.type === "media") {
+        return [asText(block.name), asText(block.alt), asText(block.caption)].filter(Boolean).join(" ");
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function getReadingMinutes(blocks) {
+  const text = getReadingText(blocks);
+  if (!text) return 0;
+
+  const tokens = text.match(/[\p{L}\p{N}]+/gu) || [];
+  const approximateWords = tokens.length || Math.ceil(text.length / 5);
+  return Math.max(1, Math.ceil(approximateWords / 180));
+}
+
 function getPreviewMedia(blocks) {
   const audioBlock = blocks.find(
     (item) => item.type === "media" && item.mediaKind === "audio" && item.src
@@ -1345,6 +1372,7 @@ app.get("/posts", async (req, res, next) => {
         title: row.title,
         likes: asLikeCount(row.likes_count),
         created_at: row.created_at,
+        reading_minutes: getReadingMinutes(blocks),
         preview_text: getPreviewText(blocks),
         preview_media: getPreviewMedia(blocks)
       };
@@ -1376,12 +1404,15 @@ app.get("/posts/:id", async (req, res, next) => {
       return res.status(404).json({ error: "Post not found." });
     }
 
+    const blocks = parseBlocksJson(row.blocks_json);
+
     res.json({
       id: row.id,
       title: row.title,
       likes: asLikeCount(row.likes_count),
       created_at: row.created_at,
-      blocks: parseBlocksJson(row.blocks_json)
+      reading_minutes: getReadingMinutes(blocks),
+      blocks
     });
   } catch (error) {
     next(error);

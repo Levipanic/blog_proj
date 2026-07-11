@@ -21,12 +21,43 @@
             <a href="/" class="top-link active" data-i18n="nav.home">Главная</a>
             <a href="/admin" class="top-link" id="adminEntryLink" data-i18n="nav.admin">Админ</a>
           </nav>
-          <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
-            <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
-            <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
-          </div>
           <button id="adminLogoutButton" class="top-action-button" type="button" hidden data-i18n="nav.logout">Выйти</button>
-          <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
+          <div class="settings-menu">
+            <button
+              id="readerSettingsToggle"
+              class="settings-toggle"
+              type="button"
+              aria-label="Настройки"
+              aria-controls="readerSettingsPanel"
+              aria-expanded="false"
+              data-i18n-aria-label="settings.open"
+            >⚙️</button>
+            <div id="readerSettingsPanel" class="settings-panel" hidden>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.language">Язык</span>
+                <div class="language-switch" role="group" aria-label="Переключение языка" data-i18n-aria-label="lang.switcherAria">
+                  <button type="button" class="language-option" data-language-option="ru" aria-pressed="true">RU</button>
+                  <button type="button" class="language-option" data-language-option="en" aria-pressed="false">EN</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.theme">Тема</span>
+                <button id="themeToggle" class="theme-toggle" type="button">Тема: Светлая</button>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.smoothScroll">Плавная прокрутка</span>
+                <button id="smoothScrollToggle" class="settings-small-button" type="button" aria-pressed="false">Выкл</button>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label" data-i18n="settings.feedView">Вид ленты</span>
+                <div class="feed-view-switch" role="group" aria-label="Вид ленты" data-i18n-aria-label="settings.feedView">
+                  <button type="button" class="feed-view-option" data-feed-view-option="list" aria-pressed="true" data-i18n="settings.feedList">Лента</button>
+                  <button type="button" class="feed-view-option" data-feed-view-option="grid" aria-pressed="false" data-i18n="settings.feedGrid">Плитки</button>
+                </div>
+              </div>
+              <button id="resetReaderDataButton" class="settings-reset-button" type="button" data-i18n="settings.reset">Очистить мои настройки и прогресс</button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
