@@ -91,6 +91,35 @@ async function fetchJson(url, options) {
   return data;
 }
 
+async function fetchAdminWrite(url, options) {
+  const requestOptions = Object.assign({}, options || {});
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const isMutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+
+  function buildOptions() {
+    const headers = new Headers(requestOptions.headers || {});
+    if (isMutation && adminCsrfToken) {
+      headers.set("X-CSRF-Token", adminCsrfToken);
+    }
+    return Object.assign({}, requestOptions, { headers });
+  }
+
+  try {
+    return await fetchJson(url, buildOptions());
+  } catch (error) {
+    if (!isMutation || !error || error.status !== 403) {
+      throw error;
+    }
+
+    await refreshAdminUiState();
+    if (!adminCsrfToken) {
+      throw error;
+    }
+
+    return fetchJson(url, buildOptions());
+  }
+}
+
 async function fetchCommentChallenge(postId) {
   return fetchJson("/comments/challenge/" + encodeURIComponent(postId));
 }
@@ -154,6 +183,8 @@ const adminUiState = {
   authenticated: false
 };
 
+let adminCsrfToken = "";
+
 function setAdminUiState(authenticated) {
   const nextAuthenticated = Boolean(authenticated);
   const changed =
@@ -180,8 +211,12 @@ function isAdminAuthenticated() {
 async function refreshAdminUiState() {
   try {
     const session = await fetchJson("/admin/session");
-    setAdminUiState(Boolean(session && session.authenticated));
+    const authenticated = Boolean(session && session.authenticated);
+    adminCsrfToken =
+      authenticated && typeof session.csrf_token === "string" ? session.csrf_token : "";
+    setAdminUiState(authenticated);
   } catch (error) {
+    adminCsrfToken = "";
     setAdminUiState(false);
   }
   return isAdminAuthenticated();
@@ -218,7 +253,8 @@ async function initTopbarAdminUi() {
       adminLogoutButton.disabled = true;
 
       try {
-        await fetchJson("/admin/logout", { method: "POST" });
+        await fetchAdminWrite("/admin/logout", { method: "POST" });
+        adminCsrfToken = "";
         applyAdminUi(false);
       } catch (error) {
         console.error(error);
@@ -2188,13 +2224,13 @@ function formatLikeText(likes) {
 }
 
 async function deletePostAsAdmin(postId) {
-  return fetchJson("/posts/" + encodeURIComponent(postId), {
+  return fetchAdminWrite("/posts/" + encodeURIComponent(postId), {
     method: "DELETE"
   });
 }
 
 async function deleteCommentAsAdmin(commentId) {
-  return fetchJson("/comments/" + encodeURIComponent(commentId), {
+  return fetchAdminWrite("/comments/" + encodeURIComponent(commentId), {
     method: "DELETE"
   });
 }
